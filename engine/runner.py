@@ -65,18 +65,38 @@ class FileHandler(object):
 
     def __init__(self, fileName):
         self.file = fileName
+        self.getEventCondition()
 
     def getEventCondition(self):
-        pass # Interprets the name, extracts selectors and creates event condition
+        if hasattr(self, "condition"):
+            return self.condition
+        if self.file[0:3] == "on.":
+            parts = self.file.split(".")
+            self.condition = EventCondition()
+            if len(parts) > 2: # contains at least event name
+                self.condition.eventName = parts[1]
+                if len(parts) > 3: # contains resource type
+                    self.condition.resourceType = parts[2]
+                    if len(parts) > 4: # contains resource name
+                        self.condition.resourceName = parts[3]
+            if len(parts) > 1:
+                self.type = parts[-1]
+
     def getEventName(self):
-        pass
+        return self.condition.eventName
+
     def isRunnable(self):
-        # TODO Check file header for #! clause
-        pass
+        opened = file(self.file)
+        try:
+            firstLine = opened.readline().trim()
+            return firstLine is not None and firstLine[0:2] == "#!"
+        finally:
+            opened.close()
 
     @staticmethod
     def isHandler(fileName):
-        pass
+        (head, tail) = fileName.partition(".")
+        return head in ["on", "run", "create", "update", "delete"]
 
     def handleEvent(self, eventName, resource, payload):
         if eventName == self.getEventName():
@@ -93,6 +113,9 @@ class FileHandler(object):
                 pass # Unable to run the script - let's try a run handler
 
         self.eventBus.publish("run", self, {resource: resource, payload: payload})
+
+    def systemExecute(self, resource, payload):
+        
 
 class GitHandler(object):
     handlerManager = None
