@@ -115,7 +115,7 @@ class FileHandler(object):
         self.eventBus.publish("run", self, {resource: resource, payload: payload})
 
     def systemExecute(self, resource, payload):
-        
+
 
 class GitHandler(object):
     handlerManager = None
