@@ -31,10 +31,54 @@ class Engine(object):
         self.handlerManager.registerOn(GitHandler(), EventCondition(eventName="GitChanged"))
 
 class HandlerManager(object):
-    pass
+    handlers = dict()
+
+    def registerSubscribe(self, handler, condition):
+        self._addHandler("subscribe", {handler: handler, condition: condition})
+
+    def registerOn(self, handler, condition):
+        self._addHandler("on", {handler: handler, condition: condition})
+
+    def _addHandler(self, event, bundle):
+        if event not in self.handlers:
+            self.handlers[event] = list(bundle)
+        else:
+            self.handlers[event].append(bundle)
+
+    def getHandlers(self, eventName, resource):
+        if eventName not in self.handlers:
+            return list()
+        return [bundle.handler for bundle in self.handlers[eventName] if bundle.condition.matchesEvent(eventName, resource)]
+
+    def handleEvent(self, eventName, resource, payload):
+        handlers = self.getHandlers(eventName, resource)
+        for handler in handlers:
+            try:
+                handler.handleEvent(eventName, resource, payload)
+            except:
+                # TODO Log
+                pass
+
 
 class ResourceManager(object):
-    pass
+    _resources = dict()
+    # add, update, remove - raise events
+    def __init__(self, engine):
+        self._engine = engine
+        self._eventBus = engine.eventBus
+
+    def addResource(self, resource):
+        if self.registerResource(resource):
+            self.raiseEvent("create", resource)
+
+    def registerResource(self, resource):
+        if resource.name not in self._resources:
+            self._resources[resource.name] = resource
+            return True
+        return False
+
+    def raiseEvent(self, eventName, resource):
+        self._eventBus.publish(eventName, resource)
 
 class Scheduler(object):
     pass
@@ -62,7 +106,7 @@ class EventCondition(ResourceCondition):
         ResourceCondition.__init__(resourceType, resourceName)
         self.eventName = eventName
 
-    def matchesEvent(self, eventName, resource, payload):
+    def matchesEvent(self, eventName, resource):
         res = self.eventName == eventName
         if not res: return False
         return self.matches(resource)
@@ -71,7 +115,7 @@ class Resource(object):
     STATES = {"INVALID": "INVALID", "DEFINED": "DEFINED"}
 
     type = ""
-    name = ""
+    name = "" # Unique name of the resource (essentially - ID)
     parentResource = None
     parent = ""
     def __init__(self, name, resourceType, parent, desc=None, raisesEvents=list()):
@@ -93,9 +137,9 @@ class Resource(object):
 class EventBus(object):
     listeners = OrderedDict()
 
-    def publish(self, eventName, resource, payload):
+    def publish(self, eventName, resource, payload = None):
         for (key, obj) in self.listeners:
-            if obj.condition.matches(eventName, resource, payload):
+            if obj.condition.matchesEvent(eventName, resource, payload):
                 try:
                     obj.callback(eventName, resource, payload)
                 except:
@@ -243,6 +287,6 @@ class GitHandler(object):
 
         gitMessage["commits"]["removed"] \
             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-            .map(lambda fileName: self.resourceManager.addResource(FileResource(fileName))) # Raises events
+            .map(lambda fileName: self.resourceManager.removeResource(FileResource(fileName))) # Raises events
 
         self.resourceManager.resumeEvents()
