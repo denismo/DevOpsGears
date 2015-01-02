@@ -7,8 +7,11 @@ from boto import sqs
 import uuid
 from collections import OrderedDict
 import yaml
+import logging
 
 DEFAULT_SUBSCRIBE_PERIOD = 60 # 1 minute in seconds
+
+# TODO: Scheduler, create test to for SQS, create SQS queue, run
 
 class Engine(object):
     resourceManager = None
@@ -27,17 +30,23 @@ class Engine(object):
         self.resourceManager = ResourceManager(self)
 
         self.handlerManager.registerSubscribe(SQSHandler(self), ResourceCondition(resourceType="sqs"))
-        self.resourceManager.addResource(Resource("gitqueue", "sqs", self.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="GitChanges"), raisesEvents=["GitChanged"]))
-        self.handlerManager.registerOn(GitHandler(), EventCondition(eventName="GitChanged"))
+        self.resourceManager.addResource(Resource("testqueue", "sqs", self.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="testqueue"), raisesEvents=["received"]))
+        self.handlerManager.registerOn(TestHandler(), EventCondition(eventName="received", resourceType="sqs"))
 
 class HandlerManager(object):
     handlers = dict()
 
+    def __init__(self, engine):
+        self._eventBus = engine.eventBus
+        self._resourceManager = engine.resourceManager
+        self._eventBus.subscribe(lambda eventName, resource, payload: True, self.handleEvent)
+
     def registerSubscribe(self, handler, condition):
-        self._addHandler("subscribe", {handler: handler, condition: condition})
+        self._addHandler("subscribe", {"handler": handler, "condition": DelegatedEventCondition("subscribe", condition)})
 
     def registerOn(self, handler, condition):
-        self._addHandler("on", {handler: handler, condition: condition})
+        self._addHandler(condition.eventName, {"handler": handler, "condition": condition})
+        self._eventBus.publish("subscribe", self._resourceManager.getMatchingResources(condition), payload={"eventName": condition.eventName})
 
     def _addHandler(self, event, bundle):
         if event not in self.handlers:
@@ -59,13 +68,13 @@ class HandlerManager(object):
                 # TODO Log
                 pass
 
-
 class ResourceManager(object):
     _resources = dict()
     # add, update, remove - raise events
     def __init__(self, engine):
         self._engine = engine
         self._eventBus = engine.eventBus
+        self.root = Resource("root", "root", None)
 
     def addResource(self, resource):
         if self.registerResource(resource):
@@ -77,11 +86,17 @@ class ResourceManager(object):
             return True
         return False
 
+    # condition is resource condition (the "matches" contract)
+    def getMatchingResources(self, condition):
+        return [resource for resource in self._resources.values() if condition.matches(resource)]
+
     def raiseEvent(self, eventName, resource):
         self._eventBus.publish(eventName, resource)
 
 class Scheduler(object):
-    pass
+
+    def __init__(self):
+        # TODO
 
 class ResourceCondition(object):
     resourceType = None
@@ -97,6 +112,19 @@ class ResourceCondition(object):
             if not res: return False
             if self.resourceName is None:
                 return self.resourceName == resource.name
+
+class DelegatedEventCondition():
+    def __init__(self, eventName=None, resourceCondition=None):
+        self._resourceCondition = resourceCondition
+        self._eventName = eventName
+
+    def matchesEvent(self, eventName, resource):
+        res = self._eventName == eventName
+        if not res: return False
+        return self.matches(resource)
+
+    def matches(self, resource):
+        return self._resourceCondition.matches(resource) if self._resourceCondition is not None else False
 
 class EventCondition(ResourceCondition):
     eventName = ""
@@ -137,9 +165,15 @@ class Resource(object):
 class EventBus(object):
     listeners = OrderedDict()
 
+    def __init__(self, engine):
+        pass
+
     def publish(self, eventName, resource, payload = None):
+        if type(resource) == list:
+            resource.map(lambda res: self.publish(eventName, res, payload))
+            return
         for (key, obj) in self.listeners:
-            if obj.condition.matchesEvent(eventName, resource, payload):
+            if obj.condition(eventName, resource, payload):
                 try:
                     obj.callback(eventName, resource, payload)
                 except:
@@ -149,12 +183,12 @@ class EventBus(object):
     def subscribe(self, condition, callback):
         if condition is None or callback is None:
             return
-        id = uuid.uuid4()
-        self.listeners[id] = {condition: condition, callback: callback, id: id}
-        return id
+        subscriptionId = uuid.uuid4()
+        self.listeners[subscriptionId] = {"condition": condition, "callback": callback, "id": subscriptionId}
+        return subscriptionId
 
-    def unsubscribe(self, id):
-        del self.listeners[id]
+    def unsubscribe(self, subscriptionId):
+        del self.listeners[subscriptionId]
 
 # TODO Handle self resource definition (for resources which became folders)
 class FileResource(Resource):
@@ -228,7 +262,7 @@ class FileHandler(object):
                 # TODO Log error
                 pass # Unable to run the script - let's try a run handler
 
-        self.eventBus.publish("run", self, {resource: resource, payload: payload})
+        self.eventBus.publish("run", self, {"resource": resource, "payload": payload})
 
     def systemExecute(self, resource, payload):
         return subprocess.call([self.file], env={"RESOURCE": resource, "PAYLOAD": payload})
@@ -243,7 +277,7 @@ class SQSHandler(object):
         self._eventBus = engine.eventBus
         self._scheduler = engine.scheduler
 
-    # TODO This means that handler manager internally will iterate all resource covered by condition, and execute handler for each of them
+    # TODO Subscribe's eventName is "subscribe". What was subscribed on should be in payload
     def handleSubscribe(self, eventName, resource):
         if not resource.type == "sqs" or not eventName == "received": return False
 
@@ -258,35 +292,41 @@ class SQSHandler(object):
 
         self._scheduler.schedule(poll, DEFAULT_SUBSCRIBE_PERIOD)
 
-class GitHandler(object):
-    handlerManager = None
-    """:type HandlerManager"""
-    resourceManager = None
-    """:type ResourceManager"""
+class TestHandler(object):
+    LOG = logging.getLogger("devopsgears.engine.TestHandler")
+    def handleEvent(self, eventName, resource, payload):
+        if eventName == "received" and resource.type == "sqs":
+            self.LOG.info("Received message in SQS queue")
 
-    def onEvent(self, eventName, resource, payload):
-        # TODO File path is relative to repository. Who will specify repository configuration?
-        if not eventName == "GitChanged":
-            return
-        gitMessage = json.loads(payload) # See https://developer.github.com/v3/activity/events/types/#pushevent
-        gitMessage["commits"]["added"]  \
-            .filter(lambda fileName: FileHandler.isHandler(fileName))       \
-            .map(lambda fileName: self.handlerManager.registerHandler(FileHandler(fileName)))
-        gitMessage["commits"]["removed"] \
-            .filter(lambda fileName: FileHandler.isHandler(fileName))       \
-            .map(lambda fileName: self.handlerManager.unregisterHandler(FileHandler(fileName)))
-
-        self.resourceManager.suspendEvents()
-        gitMessage["commits"]["added"] \
-            .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-            .map(lambda fileName: self.resourceManager.addResource(FileResource(fileName))) # Raises events
-
-        gitMessage["commits"]["modified"] \
-            .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-            .map(lambda fileName: self.resourceManager.updateResource(FileResource(fileName))) # Raises events
-
-        gitMessage["commits"]["removed"] \
-            .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-            .map(lambda fileName: self.resourceManager.removeResource(FileResource(fileName))) # Raises events
-
-        self.resourceManager.resumeEvents()
+# class GitHandler(object):
+#     handlerManager = None
+#     """:type HandlerManager"""
+#     resourceManager = None
+#     """:type ResourceManager"""
+#
+#     def onEvent(self, eventName, resource, payload):
+#         # TODO File path is relative to repository. Who will specify repository configuration?
+#         if not eventName == "GitChanged":
+#             return
+#         gitMessage = json.loads(payload) # See https://developer.github.com/v3/activity/events/types/#pushevent
+#         gitMessage["commits"]["added"]  \
+#             .filter(lambda fileName: FileHandler.isHandler(fileName))       \
+#             .map(lambda fileName: self.handlerManager.registerHandler(FileHandler(fileName)))
+#         gitMessage["commits"]["removed"] \
+#             .filter(lambda fileName: FileHandler.isHandler(fileName))       \
+#             .map(lambda fileName: self.handlerManager.unregisterHandler(FileHandler(fileName)))
+#
+#         self.resourceManager.suspendEvents()
+#         gitMessage["commits"]["added"] \
+#             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
+#             .map(lambda fileName: self.resourceManager.addResource(FileResource(fileName))) # Raises events
+#
+#         gitMessage["commits"]["modified"] \
+#             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
+#             .map(lambda fileName: self.resourceManager.updateResource(FileResource(fileName))) # Raises events
+#
+#         gitMessage["commits"]["removed"] \
+#             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
+#             .map(lambda fileName: self.resourceManager.removeResource(FileResource(fileName))) # Raises events
+#
+#         self.resourceManager.resumeEvents()
