@@ -1,9 +1,5 @@
-from engine.runner import Engine
+from runner import Engine, SQSHandler, ResourceCondition, Resource, EventCondition
 import logging
-from engine.runner import SQSHandler
-from engine.runner import ResourceCondition
-from engine.runner import Resource
-from engine.runner import EventCondition
 from boto import sqs
 import threading
 from time import sleep
@@ -14,8 +10,8 @@ import unittest
 
 class Test(unittest.TestCase):
     def testSQS(self):
-        engine = Engine()
-        engine.handlerManager.registerSubscribe(SQSHandler(self), ResourceCondition(resourceType="sqs"))
+        engine = Engine({})
+        engine.handlerManager.registerSubscribe(SQSHandler(engine), ResourceCondition(resourceType="sqs"))
         engine.resourceManager.addResource(Resource("testqueue", "sqs", engine.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="testqueue"), raisesEvents=["received"]))
         condition = threading.Condition()
         engine.handlerManager.registerOn(TestHandler(condition), EventCondition(eventName="received", resourceType="sqs"))

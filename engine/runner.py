@@ -1,26 +1,22 @@
-import heapq
-import threading
-from apscheduler.jobstores.memory import MemoryJobStore
-from apscheduler.triggers.interval import IntervalTrigger
-
 __author__ = 'Denis Mikhalkin'
 
-import json
 import os
 import subprocess
-from boto import sqs
 import uuid
 from collections import OrderedDict
+
+from boto import sqs
 import yaml
-import logging
 from pytz import utc
-
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.mongodb import MongoDBJobStore
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
+from apscheduler.executors.pool import ThreadPoolExecutor
 
-DEFAULT_SUBSCRIBE_PERIOD = 60 # 1 minute in seconds
+
+DEFAULT_SUBSCRIBE_PERIOD = 15 # 1 minute in seconds
+
+# TODO: Test is not running
 
 class Engine(object):
     resourceManager = None
@@ -35,9 +31,8 @@ class Engine(object):
     def __init__(self, config):
         self.eventBus = EventBus(self)
         self.scheduler = Scheduler(self)
-        self.handlerManager = HandlerManager(self)
         self.resourceManager = ResourceManager(self)
-
+        self.handlerManager = HandlerManager(self)
 
 class HandlerManager(object):
     handlers = dict()
@@ -152,7 +147,7 @@ class EventCondition(ResourceCondition):
     resourceType = None
     resourceName = None
     def __init__(self, eventName=None, resourceType=None, resourceName=None):
-        ResourceCondition.__init__(resourceType, resourceName)
+        ResourceCondition.__init__(self, resourceType, resourceName)
         self.eventName = eventName
 
     def matchesEvent(self, eventName, resource):
@@ -191,12 +186,12 @@ class EventBus(object):
 
     def publish(self, eventName, resource, payload = None):
         if type(resource) == list:
-            resource.map(lambda res: self.publish(eventName, res, payload))
+            map(lambda res: self.publish(eventName, res, payload), resource)
             return
-        for (key, obj) in self.listeners:
-            if obj.condition(eventName, resource, payload):
+        for obj in self.listeners.values():
+            if obj["condition"](eventName, resource, payload):
                 try:
-                    obj.callback(eventName, resource, payload)
+                    obj["callback"](eventName, resource, payload)
                 except:
                     pass
                     # TODO Logging
