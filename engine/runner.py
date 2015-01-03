@@ -12,6 +12,7 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.executors.pool import ThreadPoolExecutor
+import logging
 
 
 DEFAULT_SUBSCRIBE_PERIOD = 15 # 1 minute in seconds
@@ -19,6 +20,8 @@ DEFAULT_SUBSCRIBE_PERIOD = 15 # 1 minute in seconds
 # TODO: Test is not running
 
 class Engine(object):
+    LOG = logging.getLogger("gears.Engine")
+
     resourceManager = None
     """:type ResourceManager"""
     eventBus = None
@@ -29,10 +32,12 @@ class Engine(object):
     """:type Scheduler"""
 
     def __init__(self, config):
+        self.LOG.info("Starting engine")
         self.eventBus = EventBus(self)
         self.scheduler = Scheduler(self)
         self.resourceManager = ResourceManager(self)
         self.handlerManager = HandlerManager(self)
+        self.LOG.info("Engine started")
 
 class HandlerManager(object):
     handlers = dict()
@@ -112,6 +117,7 @@ class Scheduler(object):
         self.scheduler.start()
 
     def schedule(self, callback, periodInSeconds):
+
         self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
 
 class ResourceCondition(object):
