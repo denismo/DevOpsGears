@@ -1,3 +1,8 @@
+import heapq
+import threading
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.triggers.interval import IntervalTrigger
+
 __author__ = 'Denis Mikhalkin'
 
 import json
@@ -8,10 +13,14 @@ import uuid
 from collections import OrderedDict
 import yaml
 import logging
+from pytz import utc
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.mongodb import MongoDBJobStore
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.executors.pool import ThreadPoolExecutor, ProcessPoolExecutor
 
 DEFAULT_SUBSCRIBE_PERIOD = 60 # 1 minute in seconds
-
-# TODO: Scheduler, create test to for SQS, create SQS queue, run
 
 class Engine(object):
     resourceManager = None
@@ -29,9 +38,6 @@ class Engine(object):
         self.handlerManager = HandlerManager(self)
         self.resourceManager = ResourceManager(self)
 
-        self.handlerManager.registerSubscribe(SQSHandler(self), ResourceCondition(resourceType="sqs"))
-        self.resourceManager.addResource(Resource("testqueue", "sqs", self.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="testqueue"), raisesEvents=["received"]))
-        self.handlerManager.registerOn(TestHandler(), EventCondition(eventName="received", resourceType="sqs"))
 
 class HandlerManager(object):
     handlers = dict()
@@ -95,8 +101,23 @@ class ResourceManager(object):
 
 class Scheduler(object):
 
-    def __init__(self):
-        # TODO
+    def __init__(self, engine):
+        self.engine = engine
+        jobstores = {
+            'default': MemoryJobStore()
+        }
+        executors = {
+            'default': ThreadPoolExecutor(1),
+        }
+        job_defaults = {
+            'coalesce': False,
+            'max_instances': 1
+        }
+        self.scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults, timezone=utc)
+        self.scheduler.start()
+
+    def schedule(self, callback, periodInSeconds):
+        self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
 
 class ResourceCondition(object):
     resourceType = None
@@ -278,8 +299,8 @@ class SQSHandler(object):
         self._scheduler = engine.scheduler
 
     # TODO Subscribe's eventName is "subscribe". What was subscribed on should be in payload
-    def handleSubscribe(self, eventName, resource):
-        if not resource.type == "sqs" or not eventName == "received": return False
+    def handleSubscribe(self, eventName, resource, payload):
+        if not resource.type == "sqs": return False
 
         conn = sqs.connect_to_region(resource.desc["region"])
 
@@ -288,15 +309,10 @@ class SQSHandler(object):
             msg = queue.read()
             if msg is not None:
                 queue.delete_message(msg)
-                self._eventBus.publish(eventName, self, msg.get_body())
+                self._eventBus.publish(payload["eventName"], self, msg.get_body())
 
         self._scheduler.schedule(poll, DEFAULT_SUBSCRIBE_PERIOD)
 
-class TestHandler(object):
-    LOG = logging.getLogger("devopsgears.engine.TestHandler")
-    def handleEvent(self, eventName, resource, payload):
-        if eventName == "received" and resource.type == "sqs":
-            self.LOG.info("Received message in SQS queue")
 
 # class GitHandler(object):
 #     handlerManager = None
