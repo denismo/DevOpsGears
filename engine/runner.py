@@ -40,49 +40,60 @@ class Engine(object):
         self.LOG.info("Engine started")
 
 class HandlerManager(object):
+    LOG = logging.getLogger("gears.HandlerManager")
     handlers = dict()
 
     def __init__(self, engine):
         self._eventBus = engine.eventBus
         self._resourceManager = engine.resourceManager
         self._eventBus.subscribe(lambda eventName, resource, payload: True, self.handleEvent)
+        self.LOG.info("HandlerManager created")
 
     def registerSubscribe(self, handler, condition):
+        self.LOG.info("registerSubscribe: " + str(condition))
         self._addHandler("subscribe", {"handler": handler, "condition": DelegatedEventCondition("subscribe", condition)})
 
     def registerOn(self, handler, condition):
+        self.LOG.info("registerOn: " + str(condition))
         self._addHandler(condition.eventName, {"handler": handler, "condition": condition})
         self._eventBus.publish("subscribe", self._resourceManager.getMatchingResources(condition), payload={"eventName": condition.eventName})
 
     def _addHandler(self, event, bundle):
         if event not in self.handlers:
-            self.handlers[event] = list(bundle)
+            self.handlers[event] = [bundle]
         else:
             self.handlers[event].append(bundle)
 
     def getHandlers(self, eventName, resource):
         if eventName not in self.handlers:
             return list()
-        return [bundle.handler for bundle in self.handlers[eventName] if bundle.condition.matchesEvent(eventName, resource)]
+        return [bundle["handler"] for bundle in self.handlers[eventName] if bundle["condition"].matchesEvent(eventName, resource)]
 
     def handleEvent(self, eventName, resource, payload):
+        self.LOG.info("handleEvent(eventName=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
         handlers = self.getHandlers(eventName, resource)
+        if len(handlers) == 0:
+            self.LOG.info("-> No handlers for this event")
+            return
         for handler in handlers:
             try:
                 handler.handleEvent(eventName, resource, payload)
             except:
-                # TODO Log
+                self.LOG.exception("-> error invoking handler")
                 pass
 
 class ResourceManager(object):
+    LOG = logging.getLogger("gears.ResourceManager")
     _resources = dict()
     # add, update, remove - raise events
     def __init__(self, engine):
         self._engine = engine
         self._eventBus = engine.eventBus
         self.root = Resource("root", "root", None)
+        self.LOG.info("ResourceManager created")
 
     def addResource(self, resource):
+        self.LOG.info("addResource(%s)" % resource)
         if self.registerResource(resource):
             self.raiseEvent("create", resource)
 
@@ -100,7 +111,7 @@ class ResourceManager(object):
         self._eventBus.publish(eventName, resource)
 
 class Scheduler(object):
-
+    LOG = logging.getLogger("gears.Scheduler")
     def __init__(self, engine):
         self.engine = engine
         jobstores = {
@@ -116,8 +127,8 @@ class Scheduler(object):
         self.scheduler = BackgroundScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults, timezone=utc)
         self.scheduler.start()
 
-    def schedule(self, callback, periodInSeconds):
-
+    def schedule(self, name, callback, periodInSeconds):
+        self.LOG.info("schedule(%s,%s)" % (name, str(periodInSeconds)))
         self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
 
 class ResourceCondition(object):
@@ -132,8 +143,12 @@ class ResourceCondition(object):
             if resource is None: return False
             res = self.resourceType == resource.type
             if not res: return False
-            if self.resourceName is None:
+            if self.resourceName is not None:
                 return self.resourceName == resource.name
+            return True
+
+    def __str__(self):
+        return "ResourceCondition(type=%s, name=%s)" % (self.resourceType, self.resourceName)
 
 class DelegatedEventCondition():
     def __init__(self, eventName=None, resourceCondition=None):
@@ -148,6 +163,9 @@ class DelegatedEventCondition():
     def matches(self, resource):
         return self._resourceCondition.matches(resource) if self._resourceCondition is not None else False
 
+    def __str__(self):
+        return "DelegatedEventCondition(event=%s, type=%s, name=%s)" % (self._eventName, self._resourceCondition.resourceType, self._resourceCondition.resourceName)
+
 class EventCondition(ResourceCondition):
     eventName = ""
     resourceType = None
@@ -160,6 +178,9 @@ class EventCondition(ResourceCondition):
         res = self.eventName == eventName
         if not res: return False
         return self.matches(resource)
+
+    def __str__(self):
+        return "EventCondition(event=%s, type=%s, name=%s)" % (self.eventName, self.resourceType, self.resourceName)
 
 class Resource(object):
     STATES = {"INVALID": "INVALID", "DEFINED": "DEFINED"}
@@ -184,25 +205,34 @@ class Resource(object):
                 return True
         return False
 
+    def __str__(self):
+        return "Resource(type=%s, name=%s, parent=%s)" % (self.type, self.name, self.parent)
+
 class EventBus(object):
+    LOG = logging.getLogger("gears.EventBus")
     listeners = OrderedDict()
 
     def __init__(self, engine):
+        self.LOG.info("EventBus created")
         pass
 
     def publish(self, eventName, resource, payload = None):
+        self.LOG.info("publish(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
         if type(resource) == list:
-            map(lambda res: self.publish(eventName, res, payload), resource)
+            for res in resource:
+                self.publish(eventName, res, payload)
             return
         for obj in self.listeners.values():
             if obj["condition"](eventName, resource, payload):
                 try:
                     obj["callback"](eventName, resource, payload)
                 except:
+                    self.LOG.exception("-> error calling callback")
                     pass
                     # TODO Logging
 
     def subscribe(self, condition, callback):
+        self.LOG.info("subscribe(condition=%s)" % str(condition))
         if condition is None or callback is None:
             return
         subscriptionId = uuid.uuid4()
@@ -229,6 +259,10 @@ class FileResource(Resource):
             if "resourceType" in self.desc:
                 self.type = self.desc["resourceType"]
             self.state = Resource.STATES["DEFINED"]
+
+class Handler(object):
+    def handleEvent(self, eventName, resource, payload):
+        # TODO
 
 class FileHandler(object):
     eventBus = None
@@ -290,6 +324,7 @@ class FileHandler(object):
         return subprocess.call([self.file], env={"RESOURCE": resource, "PAYLOAD": payload})
 
 class SQSHandler(object):
+    LOG = logging.getLogger("gears.handlers.SQSHandler")
     _scheduler = None
     """:type Scheduler"""
     _eventBus = None
@@ -299,8 +334,8 @@ class SQSHandler(object):
         self._eventBus = engine.eventBus
         self._scheduler = engine.scheduler
 
-    # TODO Subscribe's eventName is "subscribe". What was subscribed on should be in payload
     def handleSubscribe(self, eventName, resource, payload):
+        self.LOG.info("handleSubscribe(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
         if not resource.type == "sqs": return False
 
         conn = sqs.connect_to_region(resource.desc["region"])
@@ -312,7 +347,7 @@ class SQSHandler(object):
                 queue.delete_message(msg)
                 self._eventBus.publish(payload["eventName"], self, msg.get_body())
 
-        self._scheduler.schedule(poll, DEFAULT_SUBSCRIBE_PERIOD)
+        self._scheduler.schedule("sqs %s poll" % (resource.desc["queueName"]), poll, DEFAULT_SUBSCRIBE_PERIOD)
 
 
 # class GitHandler(object):
