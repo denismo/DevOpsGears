@@ -1,6 +1,6 @@
 import os
 import yaml
-from runner import Resource
+from engine import Resource
 
 __author__ = 'Denis Mikhalkin'
 

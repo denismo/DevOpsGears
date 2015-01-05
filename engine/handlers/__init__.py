@@ -1,6 +1,6 @@
 import subprocess
 from boto import sqs, logging
-from runner import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler
+from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler
 
 __author__ = 'Denis Mikhalkin'
 
