@@ -1,0 +1,7 @@
+name: testqueue
+type: sqs
+raises: received
+behavior: engine.handlers.SQSHandler
+desc:
+  region: ap-southeast-2
+  queueName: testqueue

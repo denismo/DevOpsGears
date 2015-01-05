@@ -1,3 +1,5 @@
+import datetime
+
 __author__ = 'Denis Mikhalkin'
 
 import os
@@ -15,6 +17,14 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 import logging
 
 DEFAULT_SUBSCRIBE_PERIOD = 15 # 1 minute in seconds
+
+def get_class( kls ):
+    parts = kls.split('.')
+    module = ".".join(parts[:-1])
+    m = __import__( module )
+    for comp in parts[1:]:
+        m = getattr(m, comp)
+    return m
 
 class Engine(object):
     LOG = logging.getLogger("gears.Engine")
@@ -35,6 +45,10 @@ class Engine(object):
         self.scheduler = Scheduler(self)
         self.resourceManager = ResourceManager(self)
         self.handlerManager = HandlerManager(self)
+        if "repositoryPath" in config:
+            self.repository = Repository(self, config["repositoryPath"])
+            self.repository.scan()
+
         self.LOG.info("Started")
 
 class HandlerManager(object):
@@ -42,6 +56,7 @@ class HandlerManager(object):
     handlers = dict()
 
     def __init__(self, engine):
+        self._engine = engine
         self._eventBus = engine.eventBus
         self._resourceManager = engine.resourceManager
         self._eventBus.subscribe(lambda eventName, resource, payload: True, self.handleEvent)
@@ -54,7 +69,20 @@ class HandlerManager(object):
     def registerOn(self, handler, condition):
         self.LOG.info("registerOn: " + str(condition))
         self._addHandler(condition.eventName, {"handler": handler, "condition": condition})
-        self._eventBus.publish("subscribe", self._resourceManager.getMatchingResources(condition), payload={"eventName": condition.eventName})
+        self._eventBus.publish("subscribe", condition, payload={"eventName": condition.eventName})
+
+    def registerHandler(self, handler):
+        if handler is None: return
+        if type(handler) == str:
+            handler = self.createHandler(handler)
+        eventNames = handler.getEventNames()
+        for eventName in eventNames:
+            condition = handler.getEventCondition(eventName)
+            if eventName == "subscribe":
+                self.registerSubscribe(handler, condition)
+            # TODO Other event names
+            elif not Handler.isActionHandler(eventName):
+                self.registerOn(handler, condition)
 
     def _addHandler(self, event, bundle):
         if event not in self.handlers:
@@ -80,6 +108,10 @@ class HandlerManager(object):
                 self.LOG.exception("-> error invoking handler")
                 pass
 
+    def createHandler(self, handlerClass):
+        return get_class(handlerClass)(self._engine)
+
+
 class ResourceManager(object):
     LOG = logging.getLogger("gears.ResourceManager")
     _resources = dict()
@@ -94,10 +126,18 @@ class ResourceManager(object):
         self.LOG.info("addResource(%s)" % resource)
         if self.registerResource(resource):
             self.raiseEvent("register", resource)
+        else:
+            self.LOG.warn("Unable to register resource: %s" % resource)
 
     def registerResource(self, resource):
         if resource.name not in self._resources:
             self._resources[resource.name] = resource
+            if hasattr(resource, "behavior"):
+                if type(resource.behavior) is list:
+                    for behavior in resource.behavior:
+                        self._engine.handlerManager.registerHandler(behavior)
+                else:
+                    self._engine.handlerManager.registerHandler(resource.behavior)
             return True
         return False
 
@@ -127,9 +167,14 @@ class Scheduler(object):
 
     def schedule(self, name, callback, periodInSeconds):
         self.LOG.info("schedule(%s,%s)" % (name, str(periodInSeconds)))
+        # self.scheduler.add_job(callback, next_run_time=datetime.datetime.now(), trigger=IntervalTrigger(seconds=periodInSeconds))
         self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
 
-class ResourceCondition(object):
+class Condition(object):
+    def matches(self, obj):
+        return False
+
+class ResourceCondition(Condition):
     resourceType = None
     resourceName = None
     def __init__(self, resourceType=None, resourceName=None):
@@ -148,7 +193,7 @@ class ResourceCondition(object):
     def __str__(self):
         return "ResourceCondition(type=%s, name=%s)" % (self.resourceType, self.resourceName)
 
-class DelegatedEventCondition():
+class DelegatedEventCondition(Condition):
     def __init__(self, eventName=None, resourceCondition=None):
         self._resourceCondition = resourceCondition
         self._eventName = eventName
@@ -208,19 +253,31 @@ class Resource(object):
 
 class EventBus(object):
     LOG = logging.getLogger("gears.EventBus")
-    listeners = OrderedDict()
+    _listeners = OrderedDict()
+    _eventsSuspended = False
+    _recordedEvents = list()
 
     def __init__(self, engine):
+        self._engine = engine
         self.LOG.info("Created")
         pass
 
     def publish(self, eventName, resource, payload = None):
+        if self._eventsSuspended:
+            self.LOG.info("publish suspended(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
+            self._recordedEvents.append((eventName, resource, payload))
+            return
+
         self.LOG.info("publish(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
+        if issubclass(type(resource), Condition):
+            resource = self._engine.resourceManager.getMatchingResources(resource)
+
         if type(resource) == list:
             for res in resource:
                 self.publish(eventName, res, payload)
             return
-        for obj in self.listeners.values():
+
+        for obj in self._listeners.values():
             if obj["condition"](eventName, resource, payload):
                 try:
                     obj["callback"](eventName, resource, payload)
@@ -233,11 +290,20 @@ class EventBus(object):
         if condition is None or callback is None:
             return
         subscriptionId = uuid.uuid4()
-        self.listeners[subscriptionId] = {"condition": condition, "callback": callback, "id": subscriptionId}
+        self._listeners[subscriptionId] = {"condition": condition, "callback": callback, "id": subscriptionId}
         return subscriptionId
 
     def unsubscribe(self, subscriptionId):
-        del self.listeners[subscriptionId]
+        del self._listeners[subscriptionId]
+
+    def suspendEvents(self):
+        self._eventsSuspended = True
+
+    def resumeEvents(self):
+        self._eventsSuspended = False
+        while len(self._recordedEvents) > 0:
+            (eventName, resource, payload) = self._recordedEvents.pop()
+            self.publish(eventName, resource, payload)
 
 class Handler(object):
     LOG = logging.getLogger("gears.handlers.Handler")
@@ -250,10 +316,40 @@ class Handler(object):
 
     def handleRegister(self, resource, payload):
         pass
+
     def handleSubscribe(self, resource, payload):
         self.LOG.error("Unhandled 'subscribe' on %s with %s" % (resource, payload))
-        pass
 
+    def getEventCondition(self, eventName):
+        raise Exception("Not implemented")
+    def getEventNames(self):
+        raise Exception("Not implemented")
 
+    @staticmethod
+    def isActionHandler(eventName):
+        return eventName in ["run", "register", "update", "delete", "activate"]
 
+class Repository(object):
+    LOG = logging.getLogger("gears.Repository")
+    def __init__(self, engine, repositoryPath):
+        self._repositoryPath = repositoryPath
+        self._engine = engine
 
+    def scan(self):
+        from engine.handlers import FileHandler
+        from engine.resources import FileResource
+        self.LOG.info("Scanning %s" % self._repositoryPath)
+
+        self._engine.eventBus.suspendEvents()
+
+        try:
+            for dirName, subdirList, fileList in os.walk(self._repositoryPath):
+                for fileName in fileList:
+                    fullPath = os.path.join(dirName, fileName)
+                    if not FileHandler.isHandler(fileName):
+                        self._engine.resourceManager.addResource(FileResource(fullPath))
+                    else:
+                        self._engine.handlerManager.registerHandler(FileHandler(self._engine, fullPath))
+        finally:
+            self.LOG.info("Finished scanning - resuming events")
+            self._engine.eventBus.resumeEvents()

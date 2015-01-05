@@ -1,3 +1,4 @@
+import os
 import subprocess
 from boto import sqs, logging
 from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler
@@ -34,34 +35,48 @@ class SQSHandler(Handler):
 
         self._scheduler.schedule("sqs %s poll" % (resource.desc["queueName"]), poll, DEFAULT_SUBSCRIBE_PERIOD)
 
+    def getEventNames(self):
+        return ["subscribe"]
+
+    def getEventCondition(self, eventName):
+        if not eventName == "subscribe": return None
+        return EventCondition(eventName, "sqs")
+
 class FileHandler(object):
-    eventBus = None
+    LOG = logging.getLogger("gears.handlers.FileHandler")
+    _eventBus = None
     """:type EventBus"""
 
-    def __init__(self, fileName):
-        self.file = fileName
-        self.getEventCondition()
+    def __init__(self, engine, fileFullPath):
+        self._engine = engine
+        self._eventBus = engine.eventBus
+        self.fullPath = fileFullPath
+        self.createCondition()
 
-    def getEventCondition(self):
-        if hasattr(self, "condition"):
-            return self.condition
-        if self.file.startswith("on."):
-            parts = self.file.split(".")
+    def createCondition(self):
+        # TODO Other types of conditions (default actions like "register")
+        fileName = os.path.basename(self.fullPath)
+        if fileName.startswith("on."):
+            parts = fileName.split(".")
             self.condition = EventCondition()
-            if len(parts) > 2: # contains at least event name
+            if len(parts) > 2:  # contains at least event name
                 self.condition.eventName = parts[1]
-                if len(parts) > 3: # contains resource type
+                if len(parts) > 3:  # contains resource type
                     self.condition.resourceType = parts[2]
-                    if len(parts) > 4: # contains resource name
+                    if len(parts) > 4:  # contains resource name
                         self.condition.resourceName = parts[3]
             if len(parts) > 1:
                 self.type = parts[-1]
 
-    def getEventName(self):
-        return self.condition.eventName
+    def getEventCondition(self, eventName):
+        if not eventName == self.condition.eventName: return None
+        return self.condition
+
+    def getEventNames(self):
+        return [self.condition.eventName]
 
     def isRunnable(self):
-        opened = file(self.file)
+        opened = file(self.fullPath)
         try:
             firstLine = opened.readline().strip()
             return firstLine is not None and firstLine.startswith("#!")
@@ -70,11 +85,11 @@ class FileHandler(object):
 
     @staticmethod
     def isHandler(fileName):
-        (head, tail) = fileName.partition(".")
+        (head, _, tail) = fileName.partition(".")
         return head in ["on", "run", "register", "update", "delete", "activate"]
 
     def handleEvent(self, eventName, resource, payload):
-        if eventName == self.getEventName():
+        if eventName == self.condition.eventName:
             self.runHandler(resource, payload)
 
     def runHandler(self, resource, payload):
@@ -85,13 +100,12 @@ class FileHandler(object):
                 # TODO Handle return code
                 return
             except OSError:
-                # TODO Log error
-                pass # Unable to run the script - let's try a run handler
+                self.LOG.exception("-> error invoking system process")
 
-        self.eventBus.publish("run", self, {"resource": resource, "payload": payload})
+        self._eventBus.publish("run", self, {"resource": resource, "payload": payload})
 
     def systemExecute(self, resource, payload):
-        return subprocess.call([self.file], env={"RESOURCE": resource, "PAYLOAD": payload})
+        return subprocess.call([self.fullPath, self.condition.eventName], env={"RESOURCE": str(resource), "PAYLOAD": str(payload)})
 
 # class GitHandler(object):
 #     handlerManager = None

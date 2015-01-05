@@ -1,4 +1,4 @@
-from handlers import SQSHandler
+from engine.handlers import SQSHandler
 from engine import Engine, ResourceCondition, Resource, EventCondition
 import logging
 from boto import sqs
