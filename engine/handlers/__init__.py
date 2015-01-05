@@ -93,7 +93,7 @@ class FileHandler(object):
             self.runHandler(resource, payload)
 
     def runHandler(self, resource, payload):
-        # TODO Log run event
+        self.LOG.info("Running file handler %s on %s with %s" % (self.fullPath, resource, payload))
         if self.isRunnable():
             try:
                 self.systemExecute(resource, payload)
