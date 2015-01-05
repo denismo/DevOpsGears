@@ -38,7 +38,7 @@ class Engine(object):
         self.scheduler = Scheduler(self)
         self.resourceManager = ResourceManager(self)
         self.handlerManager = HandlerManager(self)
-        self.LOG.info("Engine started")
+        self.LOG.info("Started")
 
 class HandlerManager(object):
     LOG = logging.getLogger("gears.HandlerManager")
@@ -48,7 +48,7 @@ class HandlerManager(object):
         self._eventBus = engine.eventBus
         self._resourceManager = engine.resourceManager
         self._eventBus.subscribe(lambda eventName, resource, payload: True, self.handleEvent)
-        self.LOG.info("HandlerManager created")
+        self.LOG.info("Created")
 
     def registerSubscribe(self, handler, condition):
         self.LOG.info("registerSubscribe: " + str(condition))
@@ -91,12 +91,12 @@ class ResourceManager(object):
         self._engine = engine
         self._eventBus = engine.eventBus
         self.root = Resource("root", "root", None)
-        self.LOG.info("ResourceManager created")
+        self.LOG.info("Created")
 
     def addResource(self, resource):
         self.LOG.info("addResource(%s)" % resource)
         if self.registerResource(resource):
-            self.raiseEvent("create", resource)
+            self.raiseEvent("register", resource)
 
     def registerResource(self, resource):
         if resource.name not in self._resources:
@@ -214,7 +214,7 @@ class EventBus(object):
     listeners = OrderedDict()
 
     def __init__(self, engine):
-        self.LOG.info("EventBus created")
+        self.LOG.info("Created")
         pass
 
     def publish(self, eventName, resource, payload = None):
@@ -264,13 +264,13 @@ class FileResource(Resource):
 class Handler(object):
     LOG = logging.getLogger("gears.handlers.Handler")
     def handleEvent(self, eventName, resource, payload):
-        if eventName == "create":
-            return self.handleCreate(resource, payload)
+        if eventName == "register":
+            return self.handleRegister(resource, payload)
         elif eventName == "subscribe":
             return self.handleSubscribe(resource, payload)
         else: self.LOG.error("Unhandled event %s on %s with %s" % (eventName, resource, payload))
 
-    def handleCreate(self, resource, payload):
+    def handleRegister(self, resource, payload):
         pass
     def handleSubscribe(self, resource, payload):
         self.LOG.error("Unhandled 'subscribe' on %s with %s" % (resource, payload))
@@ -313,7 +313,7 @@ class FileHandler(object):
     @staticmethod
     def isHandler(fileName):
         (head, tail) = fileName.partition(".")
-        return head in ["on", "run", "create", "update", "delete"]
+        return head in ["on", "run", "register", "update", "delete", "activate"]
 
     def handleEvent(self, eventName, resource, payload):
         if eventName == self.getEventName():
