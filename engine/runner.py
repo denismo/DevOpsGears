@@ -33,6 +33,7 @@ class Engine(object):
 
     def __init__(self, config):
         self.LOG.info("Starting engine")
+        self.config = config
         self.eventBus = EventBus(self)
         self.scheduler = Scheduler(self)
         self.resourceManager = ResourceManager(self)
@@ -261,8 +262,19 @@ class FileResource(Resource):
             self.state = Resource.STATES["DEFINED"]
 
 class Handler(object):
+    LOG = logging.getLogger("gears.handlers.Handler")
     def handleEvent(self, eventName, resource, payload):
-        # TODO
+        if eventName == "create":
+            return self.handleCreate(resource, payload)
+        elif eventName == "subscribe":
+            return self.handleSubscribe(resource, payload)
+        else: self.LOG.error("Unhandled event %s on %s with %s" % (eventName, resource, payload))
+
+    def handleCreate(self, resource, payload):
+        pass
+    def handleSubscribe(self, resource, payload):
+        self.LOG.error("Unhandled 'subscribe' on %s with %s" % (resource, payload))
+        pass
 
 class FileHandler(object):
     eventBus = None
@@ -323,7 +335,7 @@ class FileHandler(object):
     def systemExecute(self, resource, payload):
         return subprocess.call([self.file], env={"RESOURCE": resource, "PAYLOAD": payload})
 
-class SQSHandler(object):
+class SQSHandler(Handler):
     LOG = logging.getLogger("gears.handlers.SQSHandler")
     _scheduler = None
     """:type Scheduler"""
@@ -333,11 +345,15 @@ class SQSHandler(object):
     def __init__(self, engine):
         self._eventBus = engine.eventBus
         self._scheduler = engine.scheduler
+        self._aws_config = engine.config["aws_config"] if "aws_config" in engine.config else None
 
-    def handleSubscribe(self, eventName, resource, payload):
-        self.LOG.info("handleSubscribe(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
+    def handleSubscribe(self, resource, payload):
+        self.LOG.info("handleSubscribe(resource=%s, payload=%s)" % (resource, payload))
         if not resource.type == "sqs": return False
 
+        # if self._aws_config is not None and "profile_name" in self._aws_config:
+        #     conn = sqs.connect_to_region(resource.desc["region"], profile_name=self._aws_config["profile_name"])
+        # else:
         conn = sqs.connect_to_region(resource.desc["region"])
 
         def poll():

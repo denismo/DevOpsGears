@@ -12,7 +12,7 @@ class Test(unittest.TestCase):
     def testSQS(self):
         logging.basicConfig()
         logging.root.setLevel(logging.INFO)
-        engine = Engine({})
+        engine = Engine({"aws_properties": {"profile_name":"pam"}})
         engine.handlerManager.registerSubscribe(SQSHandler(engine), ResourceCondition(resourceType="sqs"))
         engine.resourceManager.addResource(Resource("testqueue", "sqs", engine.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="testqueue"), raisesEvents=["received"]))
         condition = threading.Condition()
