@@ -1,4 +1,5 @@
-from runner import Engine, SQSHandler, ResourceCondition, Resource, EventCondition
+from handlers import SQSHandler
+from runner import Engine, ResourceCondition, Resource, EventCondition
 import logging
 from boto import sqs
 import threading
