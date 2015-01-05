@@ -361,7 +361,7 @@ class SQSHandler(Handler):
             msg = queue.read()
             if msg is not None:
                 queue.delete_message(msg)
-                self._eventBus.publish(payload["eventName"], self, msg.get_body())
+                self._eventBus.publish(payload["eventName"], resource, msg.get_body())
 
         self._scheduler.schedule("sqs %s poll" % (resource.desc["queueName"]), poll, DEFAULT_SUBSCRIBE_PERIOD)
 
