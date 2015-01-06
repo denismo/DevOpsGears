@@ -17,7 +17,7 @@ If you are familiar with Chef/Puppet/etc, their main automation value is realise
 Concepts
 ========
 
-Repostory
+Repository
 ---------
 TODO
 
@@ -34,6 +34,8 @@ When an event is dispatched, a list of handler is produced that can "handle" suc
 
 For example, considering the following handler "on.received.sqs.sh", here is the explanation of the parts:
 
+| Part | Role |
+|-------|-------|
 | on | reserved action meaning "event handler"|
 | received | matches event named "received"|
 | sqs | matches resource type "sqs"|
@@ -44,6 +46,9 @@ So as the result, this handler will match any "received" event sent by any resou
 There are two types of handlers which differ in purpose:
 
 *Action handler* - action handlers are used to attach a behavior to a resource, because resources are by definition passive entities. There is a number of predefined reserved actions which apply to resources:
+
+| Action | When raised |
+|-------|-------|
 |register|raised when a resource is registered within the engine. This moves the resource to the "registered" state which is merely a declaration of the resource|
 |activate|raised when a resource is to made active, for example, EC2 instance can be created. This moves the resource to the "active" state. Note that in case of EC2 instances, "active" state does not mean "running"|
 |update|raised when a resource declaration changes. The handler can then modify the running resource|
