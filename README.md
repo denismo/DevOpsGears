@@ -19,7 +19,7 @@ Concepts
 
 Repository
 ---------
-TODO
+TODO Traversal, initial registration and auto-activation
 
 Resource
 --------
@@ -41,7 +41,7 @@ For example, considering the following handler "on.received.sqs.sh", here is the
 | sqs | matches resource type "sqs"|
 | sh | the handler is a shell script|
 
-So as the result, this handler will match any "received" event sent by any resource of type "sqs". In other words, it is used to process SQS messages.
+So as the result, this handler will match any "received" event sent by any resource of type "sqs". In other words, it will receive and can process SQS messages.
 
 There are two types of handlers which differ in purpose:
 
@@ -55,12 +55,20 @@ There are two types of handlers which differ in purpose:
 |delete|raised when a resource is deleted from source repository. The handler needs to physically destroy the resource|
 |unregister||
 |deactivate||
-|run|raised when a handler needs to run. Useful when either the handler's language is not supported by the system, or when "running" a handler means more than just running a script, for example if you want to run a script in a clustered environment. The handler which handles the "run" action should be runnable, or no other action will be performed. The "run" action is invoked automatically if the script fails to execute|
+|run|raised when a handler needs to run. Useful when either the handler's language is not supported by the system, or when "running" a handler means more than just running a script, for example if you want to run a script in a clustered environment. The handler which handles the "run" action should be system-runnable, or no other action will be performed. The "run" action is invoked automatically if the script fails to execute|
 |on|raised for any event, either system action or user defined event. The handler is then declared as an "event handler", see below|
+
+TODO: Handler execution context (resource hierarchy, gears instance or user instance)
 
 *Event handler* - event handlers are any handlers which start with "on". Event handlers can handle system events, but they are more useful for handling custom user-defined events that resources can raise. For example, SQS queue may send the "received" event when a new message arrives, or EC2 Instance can send the "started" event after it starts.
 
-TODO: Installation, Examples
+Installation
+============
+TODO
+
+Examples
+========
+TODO
 
 License
 =======
