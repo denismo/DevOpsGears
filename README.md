@@ -58,7 +58,7 @@ There are two types of handlers which differ in purpose:
 |run|raised when a handler needs to run. Useful when either the handler's language is not supported by the system, or when "running" a handler means more than just running a script, for example if you want to run a script in a clustered environment. The handler which handles the "run" action should be system-runnable, or no other action will be performed. The "run" action is invoked automatically if the script fails to execute|
 |on|raised for any event, either system action or user defined event. The handler is then declared as an "event handler", see below|
 
-TODO: Handler execution context (resource hierarchy, gears instance or user instance)
+TODO: Handler execution context (resource hierarchy, environment variables, gears instance or user instance)
 
 *Event handler* - event handlers are any handlers which start with "on". Event handlers can handle system events, but they are more useful for handling custom user-defined events that resources can raise. For example, SQS queue may send the "received" event when a new message arrives, or EC2 Instance can send the "started" event after it starts.
 
@@ -68,7 +68,7 @@ TODO
 
 Examples
 ========
-TODO
+TODO 1. SQS 2. ETL with a graph of jobs 3. EC2 environments
 
 License
 =======
