@@ -13,7 +13,8 @@ class TestSQSRepository(unittest.TestCase):
     def test(self):
         logging.basicConfig()
         logging.root.setLevel(logging.INFO)
-        engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"E:\\WS\\Python\\DevOpsGears\\repositories\\sqsRepository"})
+        engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"/home/denismo/Documents/WS/DevOpsGears/repositories/sqsRepository"})
+        # engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"E:\\WS\\Python\\DevOpsGears\\repositories\\sqsRepository"})
 
         condition = threading.Condition()
 
@@ -24,3 +25,5 @@ class TestSQSRepository(unittest.TestCase):
             condition.wait(120)
         print "Finished"
 
+if __name__ == '__main__':
+    unittest.main()
