@@ -47,8 +47,7 @@ For example, consider a resource describing an AWS SQS queue. It can be simply r
 
 Multiple handlers can be associated with a resource (typically via convention), adding multiple behaviors to the resource.
 
-Resource State Machine
-----------------------
+### Resource State Machine
 From the time when resource are added to the Repository, they go through the pre-defined system states and raise predefined events:
 ADDED -> Register -> REGISTERED -> Activate -> PENDING_ACTIVATION -...> ACTIVATED
 
