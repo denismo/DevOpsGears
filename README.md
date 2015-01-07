@@ -21,7 +21,7 @@ Repository
 ----------
 Repository is where the resources and handlers are stored. Physically, repository usually matches your version control system (such as Git). The Repository is stored in memory, and contains the representation of the source repository plus any synthetic resources/handlers that you have created yourself.
 
-On startup, the engine traverse the source repository top to bottom, discovering the handlers and resources on the way. They get added to the in-memory representation of the Repository, and then initial registration events are triggered on all the resources, top to bottom. From that moment on, the source repository is also monitored for changes which are then merged with the in-memory Repository, and the corresponding events are triggered.
+On startup, the engine traverses the source repository top to bottom breadth-first, discovering the handlers and resources on the way. They get added to the in-memory representation of the Repository, and then initial registration events are triggered on all the resources, top to bottom breadth-first. From that moment on, the source repository is also monitored for changes which are then merged with the in-memory Repository, and the corresponding events are triggered.
 
 Resource
 --------
@@ -30,6 +30,7 @@ Resource is a passive object stored in the Repository. It has a number of proper
 In source repository, the resource are typically represented by the YAML files, which define the resource properties.
 
 The resources have the following default properties:
+
 | Property | Meaning |
 |----------|---------|
 |name|The unique identified of the resource, the path in the source repository by default|
@@ -38,6 +39,7 @@ The resources have the following default properties:
 |desc|Optional descriptor which can contain arbitrary configuration properties for that resource|
 |behavior|Optional list of Python classes that will be created and registered as the default handlers for that resource|
 |description|Optional human-readable resource description|
+|autoActivated|Optional flag that indicates that the resource will move to the ACTIVATED state right after registration. All resources without YAML descriptor have autoActivated=true by default|
 
 Special note on the resource behavior. By default, resource as passive. They don't expose any behavior, and simply contain properties that others can read, raise the system events. In order for the resource to "act", you need to attach a Handler that would respond to the system events.
 
@@ -52,9 +54,11 @@ ADDED -> Register -> REGISTERED -> Activate -> PENDING_ACTIVATION -...> ACTIVATE
 
 For any events, there can be a handler, and the return result of the handler determines if the Resource moves to the next state. For example, a resource which is incorrectly configured, may be failed by the Register event handler, and will then move to the FAILED state.
 
-The state transitions are tightly related to the Resource hierarchy. When resource is added and it's valid, it moves to the REGISTERED state. If the parent resource is ACTIVATED, the Activate event is raised for the child resource. If there is a handler, it'll move the Resource to the PENDING_ACTIVATION state on success. If there is no handler, the Resource remains in the Registered state, unless it is marked as "autoActivated" in which case it'll move to the ACTIVATED state automatically.
+The state transitions are tightly related to the Resource hierarchy. When resource is added and it's valid, it moves to the REGISTERED state. If the parent resource is ACTIVATED, the Activate event is raised for the child resources. If there is a handler, it'll move the Resource to the PENDING_ACTIVATION state on success. If there is no handler, the Resource remains in the Registered state, unless it is marked as "autoActivated" in which case it'll move to the ACTIVATED state automatically.
 
 On the example of the SQS queue, on Register the queue descriptor can be validated, and on Activate the queue can be created, or verified to exist and "retrieved" vi API. However, PENDING_ACTIVATION does not mean it finished creating, as typically the creation is asynchronous. Only when the SQS queue has finished creating, it should move to the "ACTIVATED" state which should be implemented by a handler.
+
+On the example of EC2 instance, the actual instance is create on "Activate" event and when it is actually running, it'll move to the ACTIVATED state. At that time, the "Activate" event is sent to all child resources which can be used to do action on running instance, for example, install packages.
 
 Handler
 -------
@@ -91,11 +95,12 @@ There are two types of handlers which differ in purpose:
 
 TODO: Handler execution context (resource hierarchy, environment variables, gears instance or user instance)
 
-*Event handler* - event handlers are any handlers which start with "on". Event handlers can handle system events, but they are more useful for handling custom user-defined events that resources can raise. For example, SQS queue may send the "received" event when a new message arrives, or EC2 Instance can send the "started" event after it starts.
+*Event handler* - event handlers are any handlers which start with "on". Event handlers can handle system events, but they are more useful for handling custom user-defined events that resources can raise. For example, SQS queue may send the "received" event when a new message arrives.
 
-Installation
+Quick Start
 ============
-TODO
+    pip install devops-gears
+    devops-gears --repository <URL to a Git repo>
 
 Examples
 ========
