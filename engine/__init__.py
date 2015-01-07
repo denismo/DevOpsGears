@@ -49,6 +49,7 @@ class Engine(object):
         if "repositoryPath" in config:
             self.repository = Repository(self, config["repositoryPath"])
             self.repository.scan()
+            self.resourceManager.start()
 
         self.LOG.info("Started")
 
@@ -101,13 +102,15 @@ class HandlerManager(object):
         handlers = self.getHandlers(eventName, resource)
         if len(handlers) == 0:
             self.LOG.info("-> No handlers for this event")
-            return
+            return True
+        result = True
         for handler in handlers:
             try:
-                handler.handleEvent(eventName, resource, payload)
+                handlerResult = handler.handleEvent(eventName, resource, payload)
+                result = result and (True if handlerResult is None else handlerResult)
             except:
                 self.LOG.exception("-> error invoking handler")
-                pass
+                result = False
 
     def createHandler(self, handlerClass):
         return get_class(handlerClass)(self._engine)
@@ -154,6 +157,10 @@ class ResourceManager(object):
         print "Resources:"
         for resource in self._resources.values():
             print resource
+
+    def start(self):
+        self.root.toState("REGISTERED")()
+        self.root.toState("ACTIVATED")()
 
 class Scheduler(object):
     LOG = logging.getLogger("gears.Scheduler")
@@ -335,13 +342,16 @@ class Handler(object):
             return self.handleRegister(resource, payload)
         elif eventName == "subscribe":
             return self.handleSubscribe(resource, payload)
-        else: self.LOG.error("Unhandled event %s on %s with %s" % (eventName, resource, payload))
+        else:
+            self.LOG.error("Unhandled event %s on %s with %s" % (eventName, resource, payload))
+            return True
 
     def handleRegister(self, resource, payload):
-        pass
+        return True
 
     def handleSubscribe(self, resource, payload):
         self.LOG.error("Unhandled 'subscribe' on %s with %s" % (resource, payload))
+        return True
 
     def getEventCondition(self, eventName):
         raise Exception("Not implemented")

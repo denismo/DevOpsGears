@@ -34,6 +34,7 @@ class SQSHandler(Handler):
                 self._eventBus.publish(payload["eventName"], resource, msg.get_body())
 
         self._scheduler.schedule("sqs %s poll" % (resource.desc["queueName"]), poll, DEFAULT_SUBSCRIBE_PERIOD)
+        return True
 
     def getEventNames(self):
         return ["subscribe"]
