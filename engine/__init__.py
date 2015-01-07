@@ -1,4 +1,5 @@
 import datetime
+from engine.async import ResultObj
 
 __author__ = 'Denis Mikhalkin'
 
@@ -111,7 +112,6 @@ class HandlerManager(object):
     def createHandler(self, handlerClass):
         return get_class(handlerClass)(self._engine)
 
-
 class ResourceManager(object):
     LOG = logging.getLogger("gears.ResourceManager")
     _resources = dict()
@@ -125,7 +125,9 @@ class ResourceManager(object):
     def addResource(self, resource):
         self.LOG.info("addResource(%s)" % resource)
         if self.registerResource(resource):
-            self.raiseEvent("register", resource)
+            self.raiseEvent("register", resource) \
+                .success(resource.toState("REGISTERED")) \
+                .failure(resource.toState("FAILED"))
         else:
             self.LOG.warn("Unable to register resource: %s" % resource)
 
@@ -146,7 +148,12 @@ class ResourceManager(object):
         return [resource for resource in self._resources.values() if condition.matches(resource)]
 
     def raiseEvent(self, eventName, resource):
-        self._eventBus.publish(eventName, resource)
+        return self._eventBus.publish(eventName, resource)
+
+    def dump(self):
+        print "Resources:"
+        for resource in self._resources.values():
+            print resource
 
 class Scheduler(object):
     LOG = logging.getLogger("gears.Scheduler")
@@ -167,7 +174,6 @@ class Scheduler(object):
 
     def schedule(self, name, callback, periodInSeconds):
         self.LOG.info("schedule(%s,%s)" % (name, str(periodInSeconds)))
-        # self.scheduler.add_job(callback, next_run_time=datetime.datetime.now(), trigger=IntervalTrigger(seconds=periodInSeconds))
         self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
 
 class Condition(object):
@@ -226,7 +232,7 @@ class EventCondition(ResourceCondition):
         return "EventCondition(event=%s, type=%s, name=%s)" % (self.eventName, self.resourceType, self.resourceName)
 
 class Resource(object):
-    STATES = {"INVALID": "INVALID", "DEFINED": "DEFINED"}
+    STATES = {"INVALID": "INVALID", "ADDED": "ADDED", "REGISTERED":"REGISTERED", "PENDING_ACTIVATION":"PENDING_ACTIVATION", "ACTIVATED":"ACTIVATED", "FAILED":"FAILED"}
 
     type = ""
     name = "" # Unique name of the resource (essentially - ID)
@@ -238,6 +244,7 @@ class Resource(object):
         self.parent = parent
         self.desc = desc
         self.raisesEvents = raisesEvents
+        self.state = self.STATES["INVALID"]
 
     def attach(self, resourceManager):
         if self.parent is None: return False
@@ -248,8 +255,13 @@ class Resource(object):
                 return True
         return False
 
+    def toState(self, newState):
+        def transition():
+            self.state = newState
+        return transition
+
     def __str__(self):
-        return "Resource(type=%s, name=%s, parent=%s)" % (self.type, self.name, self.parent)
+        return "Resource(type=%s, name=%s, parent=%s, state=%s)" % (self.type, self.name, self.parent, self.state)
 
 class EventBus(object):
     LOG = logging.getLogger("gears.EventBus")
@@ -262,28 +274,39 @@ class EventBus(object):
         self.LOG.info("Created")
         pass
 
-    def publish(self, eventName, resource, payload = None):
+    def publish(self, eventName, resource, payload = None, resultObject = None):
         if self._eventsSuspended:
             self.LOG.info("publish suspended(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
-            self._recordedEvents.append((eventName, resource, payload))
-            return
+            delayed = ResultObj()
+            self._recordedEvents.append((eventName, resource, payload, delayed))
+            return delayed
 
         self.LOG.info("publish(event=%s, resource=%s, payload=%s)" % (eventName, resource, payload))
         if issubclass(type(resource), Condition):
             resource = self._engine.resourceManager.getMatchingResources(resource)
 
         if type(resource) == list:
+            chained = None
             for res in resource:
-                self.publish(eventName, res, payload)
-            return
+                result = self.publish(eventName, res, payload)
+                if chained is not None:
+                    chained = chained.append(result)
+                else:
+                    chained = result
+            return resultObject.append(chained).trigger() if resultObject is not None else chained.trigger()
 
+        result = True
         for obj in self._listeners.values():
             if obj["condition"](eventName, resource, payload):
                 try:
-                    obj["callback"](eventName, resource, payload)
+                    result = result and obj["callback"](eventName, resource, payload)
                 except:
                     self.LOG.exception("-> error calling callback")
                     pass
+        if resultObject is not None:
+            return resultObject.trigger(result)
+        else:
+            return ResultObj(result)
 
     def subscribe(self, condition, callback):
         self.LOG.info("subscribe(condition=%s)" % str(condition))
@@ -302,8 +325,8 @@ class EventBus(object):
     def resumeEvents(self):
         self._eventsSuspended = False
         while len(self._recordedEvents) > 0:
-            (eventName, resource, payload) = self._recordedEvents.pop()
-            self.publish(eventName, resource, payload)
+            (eventName, resource, payload, delayed) = self._recordedEvents.pop()
+            self.publish(eventName, resource, payload, delayed)
 
 class Handler(object):
     LOG = logging.getLogger("gears.handlers.Handler")
@@ -353,3 +376,4 @@ class Repository(object):
         finally:
             self.LOG.info("Finished scanning - resuming events")
             self._engine.eventBus.resumeEvents()
+            self._engine.resourceManager.dump()

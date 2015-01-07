@@ -19,6 +19,8 @@ class Test(unittest.TestCase):
         condition = threading.Condition()
         engine.handlerManager.registerOn(TestHandler(condition), EventCondition(eventName="received", resourceType="sqs"))
 
+        engine.resourceManager.dump()
+
         conn = sqs.connect_to_region("ap-southeast-2")
         queue = conn.lookup("testqueue")
         queue.write(queue.new_message("test"))

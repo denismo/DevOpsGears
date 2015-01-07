@@ -49,7 +49,9 @@ Multiple handlers can be associated with a resource (typically via convention), 
 
 ### Resource State Machine
 From the time when resource are added to the Repository, they go through the pre-defined system states and raise predefined events:
-ADDED -> Register -> REGISTERED -> Activate -> PENDING_ACTIVATION -...> ACTIVATED
+
+ INVALID -> added to Repository, properties are read -> ADDED -> Register event -> REGISTERED -> Activate event -> PENDING_ACTIVATION -...> ACTIVATED
+ error transitioning to any state -> FAILED
 
 For any events, there can be a handler, and the return result of the handler determines if the Resource moves to the next state. For example, a resource which is incorrectly configured, may be failed by the Register event handler, and will then move to the FAILED state.
 
