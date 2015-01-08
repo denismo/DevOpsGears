@@ -26,6 +26,7 @@ def get_class( kls ):
     for comp in parts[1:]:
         m = getattr(m, comp)
     return m
+# TODO Resource.toState should raise events
 
 class Engine(object):
     LOG = logging.getLogger("gears.Engine")
@@ -147,6 +148,19 @@ class ResourceManager(object):
                         self._engine.handlerManager.registerHandler(behavior)
                 else:
                     self._engine.handlerManager.registerHandler(resource.behavior)
+            if resource.parent is not None:
+                if resource.parentResource is None:
+                    parentResource = self.query(resource.parent)
+                    if parentResource is not None:
+                        parentResource.addChild(resource)
+                        resource.parentResource = parentResource
+                    else:
+                        resource.toState("FAILED")()
+                else:
+                    resource.parentResource.addChild(resource)
+            else:
+                if resource.parentResource is not None:
+                    resource.parentResource.addChild(resource)
             return True
         return False
 
@@ -265,15 +279,6 @@ class Resource(object):
         self.desc = desc
         self.raisesEvents = raisesEvents
         self.state = self.STATES["INVALID"]
-
-    def attach(self, resourceManager):
-        if self.parent is None: return False
-        parent = resourceManager.query(self.parent)
-        if parent is not None:
-            if resourceManager.attachTo(parent, self):
-                self.parentResource = parent
-                return True
-        return False
 
     def toState(self, newState):
         def transition():
