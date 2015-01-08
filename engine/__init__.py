@@ -49,8 +49,11 @@ class Engine(object):
         if "repositoryPath" in config:
             self.repository = Repository(self, config["repositoryPath"])
             self.repository.scan()
-            self.resourceManager.start()
 
+        self.LOG.info("Created")
+
+    def start(self):
+        self.resourceManager.start()
         self.LOG.info("Started")
 
 class HandlerManager(object):
@@ -123,6 +126,7 @@ class ResourceManager(object):
         self._engine = engine
         self._eventBus = engine.eventBus
         self.root = Resource("root", "root", None)
+        self.installHandlers()
         self.LOG.info("Created")
 
     def addResource(self, resource):
@@ -161,6 +165,15 @@ class ResourceManager(object):
     def start(self):
         self.root.toState("REGISTERED")()
         self.root.toState("ACTIVATED")()
+
+    def installHandlers(self):
+        def activateHandler(eventName, resource, payload):
+            for child in resource.children:
+                if child.state == "REGISTERED":
+                    self._engine.eventBus.publish("activate", child)
+
+        self._engine.handlerManager.registerOn(activateHandler, EventCondition("activated"))
+
 
 class Scheduler(object):
     LOG = logging.getLogger("gears.Scheduler")
