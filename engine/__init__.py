@@ -59,7 +59,7 @@ class Engine(object):
         self.LOG.info("Started")
         self.resourceManager.dump()
 
-def stop(self):
+    def stop(self):
         self.scheduler.stop()
 
 class HandlerManager(object):
@@ -140,10 +140,13 @@ class ResourceManager(object):
 
     def addResource(self, resource):
         def onRegistered():
+            def onActivated():
+                if resource.isState("REGISTERED"):
+                    resource.toState("ACTIVATED")()
             resource.toState("REGISTERED")()
-            if resource.parentResource is not None and resource.parentResource.isActive():
+            if resource.isState("REGISTERED") and resource.parentResource is not None and resource.parentResource.isActive():
                 self._engine.eventBus.publish("activate", resource) \
-                    .success(resource.toState("ACTIVATED")) \
+                    .success(onActivated) \
                     .failure(resource.toState("FAILED"))
 
         self.LOG.info("addResource(%s)" % resource)
@@ -201,12 +204,17 @@ class ResourceManager(object):
 
     def installHandlers(self):
         def activateHandler(eventName, resource, payload):
+            def onActivated(subResource):
+                def transition():
+                    if subResource.isState("REGISTERED"):
+                        subResource.toState("ACTIVATED")()
+                return transition
             self.LOG.info("Activate handler on " + str(resource))
             for child in resource.children:
                 if child.isState("REGISTERED"):
                     try:
                         self._engine.eventBus.publish("activate", child) \
-                            .success(child.toState("ACTIVATED")) \
+                            .success(onActivated(child)) \
                             .failure(child.toState("FAILED"))
                     except:
                         self.LOG.exception("Exception activating " + child)

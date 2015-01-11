@@ -23,7 +23,6 @@ class Test(unittest.TestCase):
         engine.resourceManager.addResource(Resource("testqueue", "sqs", engine.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="testqueue"), raisesEvents=["received"]))
 
         engine.start()
-        engine.resourceManager.dump()
         assert engine.resourceManager.getResource("root").isState("ACTIVATED")
         assert engine.resourceManager.getResource("testqueue").isState("ACTIVATED")
 
@@ -36,7 +35,6 @@ class Test(unittest.TestCase):
 
         engine.start()
         engine.resourceManager.addResource(Resource("testqueue", "sqs", engine.resourceManager.root, desc=dict(region="ap-southeast-2", queueName="testqueue"), raisesEvents=["received"]))
-        engine.resourceManager.dump()
 
         assert engine.resourceManager.getResource("root").isState("ACTIVATED")
         assert engine.resourceManager.getResource("testqueue").isState("ACTIVATED")
