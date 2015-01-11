@@ -110,7 +110,10 @@ class HandlerManager(object):
         result = True
         for handler in handlers:
             try:
-                handlerResult = handler.handleEvent(eventName, resource, payload)
+                if type(handler) == type(str.lower) or str(type(handler)) == "<type 'function'>": # Function
+                    handlerResult = handler(eventName, resource, payload)
+                else:
+                    handlerResult = handler.handleEvent(eventName, resource, payload)
                 result = result and (True if handlerResult is None else handlerResult)
             except:
                 self.LOG.exception("-> error invoking handler")
@@ -127,7 +130,7 @@ class ResourceManager(object):
         self._engine = engine
         self._eventBus = engine.eventBus
         self.root = Resource("root", "root", None)
-        self.installHandlers()
+        self.registerResource(self.root)
         self.LOG.info("Created")
 
     def addResource(self, resource):
@@ -141,7 +144,10 @@ class ResourceManager(object):
 
     def registerResource(self, resource):
         if resource.name not in self._resources:
+            resource.engine = self._engine
             self._resources[resource.name] = resource
+            if hasattr(resource, "altName") and resource.altName is not None and not resource.name == resource.altName:
+                self._resources[resource.altName] = resource
             if hasattr(resource, "behavior"):
                 if type(resource.behavior) is list:
                     for behavior in resource.behavior:
@@ -150,7 +156,7 @@ class ResourceManager(object):
                     self._engine.handlerManager.registerHandler(resource.behavior)
             if resource.parent is not None:
                 if resource.parentResource is None:
-                    parentResource = self.query(resource.parent)
+                    parentResource = self.getResource(resource.parent)
                     if parentResource is not None:
                         parentResource.addChild(resource)
                         resource.parentResource = parentResource
@@ -173,20 +179,33 @@ class ResourceManager(object):
 
     def dump(self):
         print "Resources:"
-        for resource in self._resources.values():
-            print resource
+        for (key, resource) in self._resources.items():
+            print key, "\t", resource
 
     def start(self):
+        self.installHandlers()
         self.root.toState("REGISTERED")()
         self.root.toState("ACTIVATED")()
 
     def installHandlers(self):
         def activateHandler(eventName, resource, payload):
+            self.LOG.info("Activate handler on " + str(resource))
             for child in resource.children:
                 if child.state == "REGISTERED":
-                    self._engine.eventBus.publish("activate", child)
+                    try:
+                        self._engine.eventBus.publish("activate", child) \
+                            .success(child.toState("ACTIVATED")) \
+                            .failure(child.toState("FAILED"))
+                    except:
+                        self.LOG.exception("Exception activating " + child)
+                        # Continue with other children
+
+            return True
 
         self._engine.handlerManager.registerOn(activateHandler, EventCondition("activated"))
+
+    def getResource(self, path):
+        return self._resources[path]
 
 
 class Scheduler(object):
@@ -228,7 +247,8 @@ class ResourceCondition(Condition):
             if not res: return False
             if self.resourceName is not None:
                 return self.resourceName == resource.name
-            return True
+            # Fallthrough
+        return True
 
     def __str__(self):
         return "ResourceCondition(type=%s, name=%s)" % (self.resourceType, self.resourceName)
@@ -271,19 +291,35 @@ class Resource(object):
     type = ""
     name = "" # Unique name of the resource (essentially - ID)
     parentResource = None
-    parent = ""
-    def __init__(self, name, resourceType, parent, desc=None, raisesEvents=list()):
+    parent = None
+    children = list()
+    engine = None
+    def __init__(self, name, resourceType, parent, desc=None, raisesEvents=list(), altName=None):
         self.name = name
         self.type = resourceType
-        self.parent = parent
+        if type(parent) == str:
+            self.parent = parent
+        elif parent is not None:
+            self.parentResource = parent
+            self.parent = parent.name
         self.desc = desc
         self.raisesEvents = raisesEvents
+        self.altName = altName
         self.state = self.STATES["INVALID"]
 
     def toState(self, newState):
+        if not newState in self.STATES:
+            return
         def transition():
             self.state = newState
+            self.raiseEvent(newState.lower())
         return transition
+
+    def raiseEvent(self, eventName):
+        self.engine.eventBus.publish(eventName, self)
+
+    def addChild(self, child):
+        self.children.append(child)
 
     def __str__(self):
         return "Resource(type=%s, name=%s, parent=%s, state=%s)" % (self.type, self.name, self.parent, self.state)
@@ -311,13 +347,9 @@ class EventBus(object):
             resource = self._engine.resourceManager.getMatchingResources(resource)
 
         if type(resource) == list:
-            chained = None
+            chained = ResultObj(True)
             for res in resource:
-                result = self.publish(eventName, res, payload)
-                if chained is not None:
-                    chained = chained.append(result)
-                else:
-                    chained = result
+                chained = chained.append(self.publish(eventName, res, payload))
             return resultObject.append(chained).trigger() if resultObject is not None else chained.trigger()
 
         result = True
