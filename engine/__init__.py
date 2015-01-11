@@ -178,13 +178,6 @@ class ResourceManager(object):
     def raiseEvent(self, eventName, resource):
         return self._eventBus.publish(eventName, resource)
 
-    def getResourceByPathOrName(self, path):
-        if path is None: return None
-        if "/" in path:
-
-        else:
-            return self._resources[path]
-
     def dump(self):
         print "Resources:"
         for (key, resource) in self._resources.items():
@@ -316,8 +309,10 @@ class Resource(object):
         self.state = self.STATES["INVALID"]
 
     def toState(self, newState):
+        def empty():
+            pass
         if not newState in self.STATES:
-            return
+            return empty
         def transition():
             self.state = newState
             self.raiseEvent(newState.lower())
