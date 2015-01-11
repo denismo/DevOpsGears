@@ -27,6 +27,7 @@ def get_class( kls ):
         m = getattr(m, comp)
     return m
 # TODO Resource.toState should raise events
+# TODO Query on ResourceManager
 
 class Engine(object):
     LOG = logging.getLogger("gears.Engine")
@@ -127,7 +128,6 @@ class ResourceManager(object):
         self._engine = engine
         self._eventBus = engine.eventBus
         self.root = Resource("root", "root", None)
-        self.installHandlers()
         self.LOG.info("Created")
 
     def addResource(self, resource):
@@ -150,7 +150,7 @@ class ResourceManager(object):
                     self._engine.handlerManager.registerHandler(resource.behavior)
             if resource.parent is not None:
                 if resource.parentResource is None:
-                    parentResource = self.query(resource.parent)
+                    parentResource = self.getResourceByPathOrName(resource.parent)
                     if parentResource is not None:
                         parentResource.addChild(resource)
                         resource.parentResource = parentResource
@@ -171,12 +171,20 @@ class ResourceManager(object):
     def raiseEvent(self, eventName, resource):
         return self._eventBus.publish(eventName, resource)
 
+    def getResourceByPathOrName(self, path):
+        if path is None: return None
+        if "/" in path:
+
+        else:
+            return self._resources[path]
+
     def dump(self):
         print "Resources:"
         for resource in self._resources.values():
             print resource
 
     def start(self):
+        self.installHandlers()
         self.root.toState("REGISTERED")()
         self.root.toState("ACTIVATED")()
 
