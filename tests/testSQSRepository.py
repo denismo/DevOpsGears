@@ -13,8 +13,9 @@ class TestSQSRepository(unittest.TestCase):
     def test(self):
         logging.basicConfig()
         logging.root.setLevel(logging.INFO)
-        engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"/home/denismo/Documents/WS/DevOpsGears/repositories/sqsRepository"})
-        # engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"E:\\WS\\Python\\DevOpsGears\\repositories\\sqsRepository"})
+        # engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"/home/denismo/Documents/WS/DevOpsGears/repositories/sqsRepository"})
+        engine = Engine({"aws_properties": {"profile_name":"pam"}, "repositoryPath":"E:\\WS\\Python\\DevOpsGears\\repositories\\sqsRepository"})
+        engine.start()
 
         condition = threading.Condition()
 

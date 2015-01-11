@@ -22,6 +22,7 @@ class FileResource(Resource):
             if "type" in info:
                 self.type = info["type"]
             if "name" in info:
+                self.altName = self.name
                 self.name = info["name"]
             if "desc" in info:
                 self.desc = info["desc"]

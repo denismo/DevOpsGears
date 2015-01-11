@@ -57,8 +57,9 @@ class Engine(object):
     def start(self):
         self.resourceManager.start()
         self.LOG.info("Started")
+        self.resourceManager.dump()
 
-    def stop(self):
+def stop(self):
         self.scheduler.stop()
 
 class HandlerManager(object):
@@ -216,7 +217,7 @@ class ResourceManager(object):
         self._engine.handlerManager.registerOn(activateHandler, EventCondition("activated"))
 
     def getResource(self, path):
-        return self._resources[path]
+        return self._resources[path] if path in self._resources else None
 
 
 class Scheduler(object):
@@ -464,4 +465,3 @@ class Repository(object):
         finally:
             self.LOG.info("Finished scanning - resuming events")
             self._engine.eventBus.resumeEvents()
-            self._engine.resourceManager.dump()
