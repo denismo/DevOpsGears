@@ -58,6 +58,9 @@ class Engine(object):
         self.resourceManager.start()
         self.LOG.info("Started")
 
+    def stop(self):
+        self.scheduler.stop()
+
 class HandlerManager(object):
     LOG = logging.getLogger("gears.HandlerManager")
     handlers = dict()
@@ -135,10 +138,17 @@ class ResourceManager(object):
         self.LOG.info("Created")
 
     def addResource(self, resource):
+        def onRegistered():
+            resource.toState("REGISTERED")()
+            if resource.parentResource is not None and resource.parentResource.isActive():
+                self._engine.eventBus.publish("activate", resource) \
+                    .success(resource.toState("ACTIVATED")) \
+                    .failure(resource.toState("FAILED"))
+
         self.LOG.info("addResource(%s)" % resource)
         if self.registerResource(resource):
             self.raiseEvent("register", resource) \
-                .success(resource.toState("REGISTERED")) \
+                .success(onRegistered) \
                 .failure(resource.toState("FAILED"))
         else:
             self.LOG.warn("Unable to register resource: %s" % resource)
@@ -192,7 +202,7 @@ class ResourceManager(object):
         def activateHandler(eventName, resource, payload):
             self.LOG.info("Activate handler on " + str(resource))
             for child in resource.children:
-                if child.state == "REGISTERED":
+                if child.isState("REGISTERED"):
                     try:
                         self._engine.eventBus.publish("activate", child) \
                             .success(child.toState("ACTIVATED")) \
@@ -229,6 +239,10 @@ class Scheduler(object):
     def schedule(self, name, callback, periodInSeconds):
         self.LOG.info("schedule(%s,%s)" % (name, str(periodInSeconds)))
         self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
+
+    def stop(self):
+        self.scheduler.shutdown()
+
 
 class Condition(object):
     def matches(self, obj):
@@ -287,7 +301,12 @@ class EventCondition(ResourceCondition):
         return "EventCondition(event=%s, type=%s, name=%s)" % (self.eventName, self.resourceType, self.resourceName)
 
 class Resource(object):
-    STATES = {"INVALID": "INVALID", "ADDED": "ADDED", "REGISTERED":"REGISTERED", "PENDING_ACTIVATION":"PENDING_ACTIVATION", "ACTIVATED":"ACTIVATED", "FAILED":"FAILED"}
+    STATES = {"INVALID": {"name":"INVALID", "order":-2},
+              "FAILED":{"name":"FAILED", "order": -1},
+              "ADDED": {"name":"ADDED", "order": 0},
+              "REGISTERED": {"name":"REGISTERED", "order":1},
+              "PENDING_ACTIVATION":{"name":"PENDING_ACTIVATION", "order":2},
+              "ACTIVATED":{"name":"ACTIVATED", "order":3} }
 
     type = ""
     name = "" # Unique name of the resource (essentially - ID)
@@ -314,7 +333,7 @@ class Resource(object):
         if not newState in self.STATES:
             return empty
         def transition():
-            self.state = newState
+            self.state = self.STATES[newState]
             self.raiseEvent(newState.lower())
         return transition
 
@@ -323,6 +342,12 @@ class Resource(object):
 
     def addChild(self, child):
         self.children.append(child)
+
+    def isActive(self):
+        return self.state["order"] >= self.STATES["ACTIVATED"]["order"]
+
+    def isState(self, stateName):
+        return self.state == self.STATES[stateName]
 
     def __str__(self):
         return "Resource(type=%s, name=%s, parent=%s, state=%s)" % (self.type, self.name, self.parent, self.state)
