@@ -26,8 +26,6 @@ def get_class( kls ):
     for comp in parts[1:]:
         m = getattr(m, comp)
     return m
-# TODO Resource.toState should raise events
-# TODO Query on ResourceManager
 
 class Engine(object):
     LOG = logging.getLogger("gears.Engine")
