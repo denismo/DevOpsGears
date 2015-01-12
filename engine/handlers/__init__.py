@@ -103,7 +103,7 @@ class FileHandler(object):
             except OSError:
                 self.LOG.exception("-> error invoking system process")
 
-        self._eventBus.publish("run", self, {"resource": resource, "payload": payload})
+        # self._eventBus.publish("run", self, {"resource": resource, "payload": payload})
 
     def systemExecute(self, resource, payload):
         return subprocess.call([self.fullPath, self.condition.eventName], env={"RESOURCE": str(resource), "PAYLOAD": str(payload)})
