@@ -75,6 +75,14 @@ class HandlerManager(object):
         self.LOG.info("registerSubscribe: " + str(condition))
         self._addHandler("subscribe", {"handler": handler, "condition": DelegatedEventCondition("subscribe", condition)})
 
+    def registerRegister(self, handler, condition):
+        self.LOG.info("registerRegister: " + str(condition))
+        self._addHandler("register", {"handler": handler, "condition": DelegatedEventCondition("register", condition)})
+
+    def registerActivate(self, handler, condition):
+        self.LOG.info("registerActivate: " + str(condition))
+        self._addHandler("activate", {"handler": handler, "condition": DelegatedEventCondition("activate", condition)})
+
     def registerOn(self, handler, condition):
         self.LOG.info("registerOn: " + str(condition))
         self._addHandler(condition.eventName, {"handler": handler, "condition": condition})
@@ -89,7 +97,10 @@ class HandlerManager(object):
             condition = handler.getEventCondition(eventName)
             if eventName == "subscribe":
                 self.registerSubscribe(handler, condition)
-            # TODO Other event names
+            elif eventName == "register":
+                self.registerRegister(handler, condition)
+            elif eventName == "activate":
+                self.registerActivate(handler, condition)
             elif not Handler.isActionHandler(eventName):
                 self.registerOn(handler, condition)
 
@@ -121,6 +132,7 @@ class HandlerManager(object):
             except:
                 self.LOG.exception("-> error invoking handler")
                 result = False
+        return result
 
     def createHandler(self, handlerClass):
         return get_class(handlerClass)(self._engine)
@@ -133,7 +145,6 @@ class ResourceManager(object):
         self._engine = engine
         self._eventBus = engine.eventBus
         self.root = Resource("root", "root", None)
-        self.registerResource(self.root)
         self.LOG.info("Created")
 
     def addResource(self, resource):
@@ -197,6 +208,7 @@ class ResourceManager(object):
 
     def start(self):
         self.installHandlers()
+        self.registerResource(self.root)
         self.root.toState("REGISTERED")()
         self.root.toState("ACTIVATED")()
 
@@ -245,7 +257,10 @@ class Scheduler(object):
 
     def schedule(self, name, callback, periodInSeconds):
         self.LOG.info("schedule(%s,%s)" % (name, str(periodInSeconds)))
-        self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
+        return self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
+
+    def unschedule(self, job):
+        self.scheduler.remove_job(job)
 
     def stop(self):
         self.scheduler.shutdown()
@@ -256,8 +271,6 @@ class Condition(object):
         return False
 
 class ResourceCondition(Condition):
-    resourceType = None
-    resourceName = None
     def __init__(self, resourceType=None, resourceName=None):
         self.resourceType = resourceType
         self.resourceName = resourceName
@@ -292,9 +305,6 @@ class DelegatedEventCondition(Condition):
         return "DelegatedEventCondition(event=%s, type=%s, name=%s)" % (self._eventName, self._resourceCondition.resourceType, self._resourceCondition.resourceName)
 
 class EventCondition(ResourceCondition):
-    eventName = ""
-    resourceType = None
-    resourceName = None
     def __init__(self, eventName=None, resourceType=None, resourceName=None):
         ResourceCondition.__init__(self, resourceType, resourceName)
         self.eventName = eventName
@@ -321,7 +331,7 @@ class Resource(object):
     parent = None
     children = list()
     engine = None
-    def __init__(self, name, resourceType, parent, desc=None, raisesEvents=list(), altName=None):
+    def __init__(self, name, resourceType, parent, desc=None, raisesEvents=list(), altName=None, behavior=None):
         self.name = name
         self.type = resourceType
         if type(parent) == str:
@@ -330,6 +340,7 @@ class Resource(object):
             self.parentResource = parent
             self.parent = parent.name
         self.desc = desc
+        self.behavior = behavior
         self.raisesEvents = raisesEvents
         self.altName = altName
         self.state = self.STATES["INVALID"]

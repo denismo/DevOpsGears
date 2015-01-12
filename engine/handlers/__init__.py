@@ -1,8 +1,9 @@
 import os
 import subprocess
-from boto import sqs, logging
-from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler
+from boto import sqs
+from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler, ResourceCondition
 from boto import ec2
+import logging
 
 __author__ = 'Denis Mikhalkin'
 
@@ -110,25 +111,42 @@ class FileHandler(Handler):
         return subprocess.call([self.fullPath, self.condition.eventName], env={"RESOURCE": str(resource), "PAYLOAD": str(payload)})
 
 class EC2InstanceHandler(Handler):
+    LOG = logging.getLogger("engine.handlers.EC2InstanceHandler")
 
     def __init__(self, engine):
         self._engine = engine
 
     def handleEvent(self, eventName, resource, payload):
         if eventName == "register":
+            self.LOG.info("Handling register for " + str(resource))
             return self._validateInstance(resource)
         if eventName == "activate":
-            if self._tryAttach(resource):
+            self.LOG.info("Handling activate for " + str(resource))
+            attachRes = self._tryAttach(resource)
+            self.LOG.info("Attach result: " + attachRes)
+            if attachRes == "running":
+                self.LOG.info("Instance is running")
                 return True
-            else:
+            elif attachRes == "starting":
+                self.LOG.info("Instance is starting")
+                resource.toState("PENDING_ACTIVATION")()
+                self.watchInstance(resource)
+                return True
+            elif attachRes == "nonexisting":
+                self.LOG.info("Instance is non-existant - creating")
                 if self._tryCreate(resource):
                     resource.toState("PENDING_ACTIVATION")()
+                    self.watchInstance(resource)
                     return True
                 else:
                     return False
+            else:
+                return False
 
-    def instanceCreated(self, instanceName):
-        self._engine.eventBus.publish("activated", self._engine.resourceManager.getResource(instanceName))
+    def getEventNames(self):
+        return ["register", "activate"]
+    def getEventCondition(self, eventName):
+        return ResourceCondition("ec2instance")
 
     def _validateInstance(self, resource):
         return hasattr(resource, "desc") and \
@@ -144,13 +162,38 @@ class EC2InstanceHandler(Handler):
                            key_name=resource.desc["key-name"], security_groups=resource.desc["security-groups"],
                            instance_type=resource.desc["instance-type"])
         print reservation
+        return reservation.instances is not None and len(reservation.instances) > 0
         # TODO How to determine whether it was created?
-        return True
+
+    def getInstanceState(self, resource):
+        conn = ec2.connect_to_region(resource.desc["region"])
+        instances = conn.get_only_instances(filters={"Name":resource.name})
+        if instances is not None and len(instances) == 1:
+            instance = instances[0]
+            return instance.state.name
+        else:
+            return None
 
     def _tryAttach(self, resource):
-        conn = ec2.connect_to_region(resource.desc["region"])
-        conn.desc
+        state = self.getInstanceState(resource)
+        if state == "running":
+            return "running"
+        elif state in ["pending", "stopped"]:
+            return "starting"
+        elif state is None:
+            return "nonexisting"
+        else:
+            return "unavailable"
 
+    def watchInstance(self, resource):
+        handle = []
+        def monitor():
+            state = self.getInstanceState(resource)
+            self.LOG.info("Instance %s state is %s" % (resource, state))
+            if state == "running":
+                self._engine.scheduler.unschedule(handle[0])
+                self._engine.eventBus.publish("activated", resource)
+        handle.append(self._engine.scheduler.schedule("EC2 monitor", monitor, 10))
 
 # class GitHandler(object):
 #     handlerManager = None
@@ -184,3 +227,4 @@ class EC2InstanceHandler(Handler):
 #             .map(lambda fileName: self.resourceManager.removeResource(FileResource(fileName))) # Raises events
 #
 #         self.resourceManager.resumeEvents()
+

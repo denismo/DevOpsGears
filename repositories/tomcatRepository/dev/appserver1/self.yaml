@@ -1,8 +1,9 @@
 name: appserver1
-type: EC2Instance
+type: ec2instance
 behavior: handlers.aws.EC2Instance
 desc:
   instance-type: t2.small
   image-id: aaaa
   key-name: mykey
   security-groups: Dev
+  region: ap-southeast-2
