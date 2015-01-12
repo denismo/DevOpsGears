@@ -2,6 +2,7 @@ import os
 import subprocess
 from boto import sqs, logging
 from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler
+from boto import ec2
 
 __author__ = 'Denis Mikhalkin'
 
@@ -43,7 +44,7 @@ class SQSHandler(Handler):
         if not eventName == "subscribe": return None
         return EventCondition(eventName, "sqs")
 
-class FileHandler(object):
+class FileHandler(Handler):
     LOG = logging.getLogger("gears.handlers.FileHandler")
     _eventBus = None
     """:type EventBus"""
@@ -103,10 +104,53 @@ class FileHandler(object):
             except OSError:
                 self.LOG.exception("-> error invoking system process")
 
-        self._eventBus.publish("run", self, {"resource": resource, "payload": payload})
+        # self._eventBus.publish("run", self, {"resource": resource, "payload": payload})
 
     def systemExecute(self, resource, payload):
         return subprocess.call([self.fullPath, self.condition.eventName], env={"RESOURCE": str(resource), "PAYLOAD": str(payload)})
+
+class EC2InstanceHandler(Handler):
+
+    def __init__(self, engine):
+        self._engine = engine
+
+    def handleEvent(self, eventName, resource, payload):
+        if eventName == "register":
+            return self._validateInstance(resource)
+        if eventName == "activate":
+            if self._tryAttach(resource):
+                return True
+            else:
+                if self._tryCreate(resource):
+                    resource.toState("PENDING_ACTIVATION")()
+                    return True
+                else:
+                    return False
+
+    def instanceCreated(self, instanceName):
+        self._engine.eventBus.publish("activated", self._engine.resourceManager.getResource(instanceName))
+
+    def _validateInstance(self, resource):
+        return hasattr(resource, "desc") and \
+            "instance-type" in resource.desc and \
+            "image-id" in resource.desc and \
+            "key-name" in resource.desc and \
+            "security-groups" in resource.desc and \
+            "region" in resource.desc
+
+    def _tryCreate(self, resource):
+        conn = ec2.connect_to_region(resource.desc["region"])
+        reservation = conn.run_instances(image_id = resource.desc["image-id"], min_count= 1, max_count=1,
+                           key_name=resource.desc["key-name"], security_groups=resource.desc["security-groups"],
+                           instance_type=resource.desc["instance-type"])
+        print reservation
+        # TODO How to determine whether it was created?
+        return True
+
+    def _tryAttach(self, resource):
+        conn = ec2.connect_to_region(resource.desc["region"])
+        conn.desc
+
 
 # class GitHandler(object):
 #     handlerManager = None
