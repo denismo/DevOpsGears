@@ -161,16 +161,17 @@ class EC2InstanceHandler(Handler):
         reservation = conn.run_instances(image_id = resource.desc["image-id"], min_count= 1, max_count=1,
                            key_name=resource.desc["key-name"], security_groups=resource.desc["security-groups"],
                            instance_type=resource.desc["instance-type"])
-        print reservation
-        return reservation.instances is not None and len(reservation.instances) > 0
-        # TODO How to determine whether it was created?
+        res = reservation.instances is not None and len(reservation.instances) > 0
+        if res:
+            reservation.instances[0].add_tags({"Name":resource.name, "CreatedBy":"DevOpsGears"})
+        return res
 
     def getInstanceState(self, resource):
         conn = ec2.connect_to_region(resource.desc["region"])
-        instances = conn.get_only_instances(filters={"Name":resource.name})
+        instances = conn.get_only_instances(filters={"tag:Name":resource.name})
         if instances is not None and len(instances) == 1:
             instance = instances[0]
-            return instance.state.name
+            return instance.state
         else:
             return None
 
