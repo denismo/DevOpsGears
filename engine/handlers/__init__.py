@@ -1,7 +1,7 @@
 import os
 import subprocess
 from boto import sqs
-from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler, ResourceCondition
+from engine import EventCondition, DEFAULT_SUBSCRIBE_PERIOD, Handler, ResourceCondition, is_integer
 from boto import ec2
 import logging
 
@@ -59,15 +59,39 @@ class FileHandler(Handler):
     def createCondition(self):
         # TODO Other types of conditions (default actions like "register")
         fileName = os.path.basename(self.fullPath)
+        orderPartition = fileName.partition(".")
+        if is_integer(orderPartition[0]):
+            fileName = orderPartition[2]
+            self.order = int(orderPartition[0])
         if fileName.startswith("on."):
             parts = fileName.split(".")
             self.condition = EventCondition()
-            if len(parts) > 2:  # contains at least event name
-                self.condition.eventName = parts[1]
-                if len(parts) > 3:  # contains resource type
-                    self.condition.resourceType = parts[2]
-                    if len(parts) > 4:  # contains resource name
-                        self.condition.resourceName = parts[3]
+
+            state = "eventname"
+            for part in parts[1:]:
+                if state == "eventname":
+                    self.condition.eventName = part
+                    state = "resource-type"
+                elif state == "resource-type":
+                    self.condition.resourceType = part
+                    state = "resource-name"
+                elif state == "resource-name":
+                    if part == "in":
+                        state = "in"
+                    elif part == "under":
+                        state = "under"
+                    else:
+                        self.condition.resourceName = part
+                        state = "done"
+                elif state == "in":
+                    self.condition.parent = part
+                    state = "done"
+                elif state == "under":
+                    self.condition.ancestor = part
+                    state = "done"
+                elif state == "done":
+                    break
+
             if len(parts) > 1:
                 self.type = parts[-1]
 
@@ -108,7 +132,7 @@ class FileHandler(Handler):
         # self._eventBus.publish("run", self, {"resource": resource, "payload": payload})
 
     def systemExecute(self, resource, payload):
-        return subprocess.call([self.fullPath, self.condition.eventName], env={"RESOURCE": str(resource), "PAYLOAD": str(payload)})
+        return subprocess.call([self.fullPath, self.condition.eventName], env={"RESOURCE": str(resource), "RESOURCE_NAME": resource.name, "RESOURCE_TYPE": resource.type, "PAYLOAD": str(payload)})
 
 class EC2InstanceHandler(Handler):
     LOG = logging.getLogger("engine.handlers.EC2InstanceHandler")

@@ -28,6 +28,13 @@ def get_class( kls ):
         m = getattr(m, comp)
     return m
 
+def is_integer(s):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+
 class Engine(object):
     LOG = logging.getLogger("gears.Engine")
 
@@ -282,7 +289,14 @@ class ResourceCondition(Condition):
             res = self.resourceType == resource.type
             if not res: return False
             if self.resourceName is not None:
-                return self.resourceName == resource.name
+                res = self.resourceName == resource.name
+            if not res: return False
+            if hasattr(self, "parent"):
+                res = self.parent == (resource.parent.type if resource.parent is not None else None)
+            if not res: return False
+            if hasattr(self, "ancestor"):
+                res = resource.getAncestorByType(self.ancestor) is not None
+            if not res: return False
             # Fallthrough
         return True
 
@@ -377,6 +391,14 @@ class Resource(object):
 
     def isState(self, stateName):
         return self.state == self.STATES[stateName]
+
+    def getAncestorByType(self, type):
+        parent = self.parent
+        while parent is not None:
+            if parent.type == type:
+                return parent
+            parent = parent.parent
+        return None
 
     def __str__(self):
         return "Resource(type=%s, name=%s, parent=%s, state=%s, dynamicState=%s)" % (self.type, self.name, self.parent, self.state, self.dynamicState)
