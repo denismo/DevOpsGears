@@ -1,4 +1,5 @@
 import datetime
+from time import sleep
 from engine.async import ResultObj
 
 __author__ = 'Denis Mikhalkin'
@@ -260,7 +261,7 @@ class Scheduler(object):
         return self.scheduler.add_job(callback, IntervalTrigger(seconds=periodInSeconds))
 
     def unschedule(self, job):
-        self.scheduler.remove_job(job)
+        self.scheduler.remove_job(job.id)
 
     def stop(self):
         self.scheduler.shutdown()
@@ -344,6 +345,16 @@ class Resource(object):
         self.raisesEvents = raisesEvents
         self.altName = altName
         self.state = self.STATES["INVALID"]
+        self.dynamicState = {}
+
+    def waitForState(self, targetState, timeout=None):
+        count = 0
+        while not self.state["name"] == targetState:
+            sleep(1)
+            count += 1
+            if timeout is not None and count > timeout:
+                break
+
 
     def toState(self, newState):
         def empty():
@@ -368,7 +379,7 @@ class Resource(object):
         return self.state == self.STATES[stateName]
 
     def __str__(self):
-        return "Resource(type=%s, name=%s, parent=%s, state=%s)" % (self.type, self.name, self.parent, self.state)
+        return "Resource(type=%s, name=%s, parent=%s, state=%s, dynamicState=%s)" % (self.type, self.name, self.parent, self.state, self.dynamicState)
 
 class EventBus(object):
     LOG = logging.getLogger("gears.EventBus")

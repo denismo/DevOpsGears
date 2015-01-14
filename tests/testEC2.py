@@ -20,10 +20,14 @@ class Test(unittest.TestCase):
         logging.root.setLevel(logging.INFO)
         engine = Engine({"aws_properties": {"profile_name":"packer"}})
         self.engine = engine
-        engine.resourceManager.addResource(Resource("testinstance", "ec2instance", engine.resourceManager.root, behavior="engine.handlers.EC2InstanceHandler",
-                                                    desc={"region":"ap-southeast-2", "image-id":"ami-63f79559", "instance-type":"t2.micro", "key-name":"SydneyEC2", "security-groups":["default"]}))
+        instance = Resource("testinstance", "ec2instance", engine.resourceManager.root,
+                            behavior="engine.handlers.EC2InstanceHandler",
+                            desc={"region": "ap-southeast-2", "image-id": "ami-63f79559", "instance-type": "t2.micro",
+                                  "key-name": "SydneyEC2", "security-groups": ["default"]})
+        engine.resourceManager.addResource(instance)
 
         engine.start()
         assert engine.resourceManager.getResource("root").isState("ACTIVATED")
+        instance.waitForState("ACTIVATED", 60)
         assert engine.resourceManager.getResource("testinstance").isState("ACTIVATED")
 

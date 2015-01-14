@@ -169,63 +169,37 @@ class EC2InstanceHandler(Handler):
     def getInstanceState(self, resource):
         conn = ec2.connect_to_region(resource.desc["region"])
         instances = conn.get_only_instances(filters={"tag:Name":resource.name})
-        if instances is not None and len(instances) == 1:
+        if instances is not None:
+            instances = [instance for instance in instances if instance.state in ["running", "pending", "stopped", "stopping"]]
+        if instances is not None and len(instances) >= 1:
             instance = instances[0]
-            return instance.state
+            return (instance, instance.state)
         else:
-            return None
+            return (None, None)
 
     def _tryAttach(self, resource):
-        state = self.getInstanceState(resource)
+        (instance, state) = self.getInstanceState(resource)
         if state == "running":
+            self.readInstance(resource, instance)
             return "running"
         elif state in ["pending", "stopped"]:
             return "starting"
-        elif state is None:
-            return "nonexisting"
         else:
-            return "unavailable"
+            return "nonexisting"
 
     def watchInstance(self, resource):
         handle = []
         def monitor():
-            state = self.getInstanceState(resource)
+            (instance, state) = self.getInstanceState(resource)
             self.LOG.info("Instance %s state is %s" % (resource, state))
             if state == "running":
+                self.readInstance(resource, instance)
                 self._engine.scheduler.unschedule(handle[0])
                 self._engine.eventBus.publish("activated", resource)
         handle.append(self._engine.scheduler.schedule("EC2 monitor", monitor, 10))
 
-# class GitHandler(object):
-#     handlerManager = None
-#     """:type HandlerManager"""
-#     resourceManager = None
-#     """:type ResourceManager"""
-#
-#     def onEvent(self, eventName, resource, payload):
-#         # TODO File path is relative to repository. Who will specify repository configuration?
-#         if not eventName == "GitChanged":
-#             return
-#         gitMessage = json.loads(payload) # See https://developer.github.com/v3/activity/events/types/#pushevent
-#         gitMessage["commits"]["added"]  \
-#             .filter(lambda fileName: FileHandler.isHandler(fileName))       \
-#             .map(lambda fileName: self.handlerManager.registerHandler(FileHandler(fileName)))
-#         gitMessage["commits"]["removed"] \
-#             .filter(lambda fileName: FileHandler.isHandler(fileName))       \
-#             .map(lambda fileName: self.handlerManager.unregisterHandler(FileHandler(fileName)))
-#
-#         self.resourceManager.suspendEvents()
-#         gitMessage["commits"]["added"] \
-#             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-#             .map(lambda fileName: self.resourceManager.addResource(FileResource(fileName))) # Raises events
-#
-#         gitMessage["commits"]["modified"] \
-#             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-#             .map(lambda fileName: self.resourceManager.updateResource(FileResource(fileName))) # Raises events
-#
-#         gitMessage["commits"]["removed"] \
-#             .filter(lambda fileName: not FileHandler.isHandler(fileName)) \
-#             .map(lambda fileName: self.resourceManager.removeResource(FileResource(fileName))) # Raises events
-#
-#         self.resourceManager.resumeEvents()
-
+    def readInstance(self, resource, instance):
+        if not hasattr(resource, "dynamicState"):
+            resource.dynamicState = {}
+        resource.dynamicState["privateIP"] = instance.private_ip_address
+        resource.dynamicState["publicIP"] = instance.ip_address
